@@ -52,6 +52,11 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
     <sql>{escape(sel)}</sql>
     <limit>0</limit>
     <execute_each_row>N</execute_each_row>
+    <GUI>
+      <xloc>150</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
+    </GUI>
   </step>
   <step>
     <name>WRITE_TARGET</name>
@@ -63,6 +68,11 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
     <truncate>N</truncate>
     <ignore_errors>N</ignore_errors>
     <use_batch>Y</use_batch>
+    <GUI>
+      <xloc>450</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
+    </GUI>
   </step>
 </transformation>
 """
@@ -93,6 +103,9 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
       <type>SQL</type>
       <connection>{escape(src['name'])}</connection>
       <sql>{escape(purge_sql)}</sql>
+      <xloc>1050</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>"""
         last_phase = "PURGE_SOURCE"
     else:
@@ -103,6 +116,9 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
       <type>SQL</type>
       <connection>{escape(repo['name'])}</connection>
       <sql>{escape(keep_sql)}</sql>
+      <xloc>1050</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>"""
         last_phase = "KEEP_LOG"
 
@@ -137,17 +153,26 @@ result = (src_c == tgt_c);"""
       <name>START</name>
       <type>SPECIAL</type>
       <start>Y</start>
+      <xloc>50</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>INIT_SUMMARY</name>
       <type>SQL</type>
       <connection>{escape(repo['name'])}</connection>
       <sql>{escape(init_sql)}</sql>
+      <xloc>200</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>RUN_KTR</name>
       <type>TRANS</type>
       <filename>${{Internal.Entry.Current.Directory}}/{escape(j['job_name'])}.ktr</filename>
+      <xloc>370</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>GET_SRC_COUNT</name>
@@ -156,6 +181,9 @@ result = (src_c == tgt_c);"""
       <sql>{escape(cnt_src)}</sql>
       <success_condition>rows_count_greater_equal</success_condition>
       <limit>0</limit>
+      <xloc>540</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>GET_TGT_COUNT</name>
@@ -164,11 +192,17 @@ result = (src_c == tgt_c);"""
       <sql>{escape(cnt_tgt)}</sql>
       <success_condition>rows_count_greater_equal</success_condition>
       <limit>0</limit>
+      <xloc>710</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>VERIFY_COUNT</name>
       <type>EVAL</type>
       <script>{escape(verify_js)}</script>
+      <xloc>880</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
 {purge_entry}
     <entry>
@@ -176,17 +210,26 @@ result = (src_c == tgt_c);"""
       <type>SQL</type>
       <connection>{escape(repo['name'])}</connection>
       <sql>{escape(fin_ok)}</sql>
+      <xloc>1220</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>MARK_MISMATCH</name>
       <type>SQL</type>
       <connection>{escape(repo['name'])}</connection>
       <sql>{escape(fin_bad)}</sql>
+      <xloc>880</xloc>
+      <yloc>370</yloc>
+      <draw>Y</draw>
     </entry>
     <entry>
       <name>ABORT_JOB</name>
       <type>ABORT</type>
       <message>STRATA VERIFY MISMATCH - purge dibatalkan</message>
+      <xloc>1050</xloc>
+      <yloc>370</yloc>
+      <draw>Y</draw>
     </entry>
   </entries>
   <hops>
