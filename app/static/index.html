@@ -321,8 +321,7 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
     </div>
     <div class="tline" id="cTest">belum ditest</div>
     <div class="mfoot">
-      <button class="btn" onclick="cModal.classList.remove('on')">Cancel</button>
-      <button class="btn" onclick="saveConnThenTest()">Save + Test</button>
+      <button class="btn" onclick="testConnInModal()">Test</button>
       <button class="btn primary" onclick="saveConn()">Save</button>
     </div>
   </div>
@@ -366,7 +365,9 @@ async function loadJobs(){
         <td><span class="chip ${j.mode==='delete'?'c-del':'c-keep'}">${j.mode.toUpperCase()}</span></td>
         <td><span class="chip ${j.schedule_enabled?'c-ok':'c-pend'}" style="${j.schedule_enabled?'':'background:rgba(127,146,166,.1);color:var(--muted)'}">${j.schedule_enabled?'DAILY '+j.schedule_time:'MANUAL'}</span></td>
         <td><span class="chip ${j.approval_status==='approved'?'c-ok':'c-pend'}">${j.approval_status==='approved'?'APPROVED v'+j.active_version:'NEEDS APPROVAL'}</span></td>
-        <td><button class="btn sm dl" ${j.approval_status!=='approved'?'disabled':''}
+        <td style="display:flex;gap:6px">
+          <button class="btn sm" onclick="event.stopPropagation();editJob(${j.id})">Edit</button>
+          <button class="btn sm dl" ${j.approval_status!=='approved'?'disabled':''}
              onclick="event.stopPropagation();window.location='/api/jobs/${j.id}/download'">↓ KJB/KTR</button></td>
       </tr>`).join('') : '<tr><td colspan="6" class="jp">Belum ada job. Klik + New Job.</td></tr>';
     $('repoDot').style.background='var(--green)';
@@ -408,7 +409,7 @@ function genName(){
 }
 function previewFiles(){
   $('filePreview').innerHTML=`
-    <div class="strip i" style="margin-bottom:12px">File final digenerate server saat Save (dialect: ${esc($('wSrc').selectedOptions[0]?.dataset.eng||'')}). Preview penuh tersedia di halaman detail setelah save.</div>
+    <div class="strip i" style="margin-bottom:12px">File digenerate server saat Save. Setelah save, isi KJB/KTR ditampilkan di bawah — bisa expand & copy-paste.</div>
     <div class="fpill"><div class="fi kjb">KJB</div><div class="ft"><b>${esc($('wName').value)}.kjb</b>
       <small>Orchestrator: CUTOFF → RUN_KTR → VERIFY (hard gate) → ${mode==='delete'?'PURGE':'KEEP'} → log ke task_summary</small></div></div>
     <div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc($('wName').value)}.ktr</b>
@@ -432,7 +433,17 @@ async function saveJob(){
       headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
     await api(`/api/jobs/${res.job_id}/approve?version=${res.version}`,{method:'POST'});
     toast('Job saved & approved v'+res.version);
-    go('config');loadJobs();
+    // show generated files for copy-paste
+    const files=await api(`/api/jobs/${res.job_id}/files?version=${res.version}`);
+    $('filePreview').innerHTML=files.map((f,i)=>`
+      <div class="fpill" onclick="$('wp${i}').classList.toggle('on')">
+        <div class="fi ${f.file_type}">${f.file_type.toUpperCase()}</div>
+        <div class="ft"><b>${esc(body.job_name)}.${f.file_type}</b>
+        <small>dialect: ${esc(f.dialect)} · approved v${res.version} · klik untuk expand, bisa copy-paste</small></div>
+        <span class="jp">›</span></div>
+      <pre id="wp${i}" class="on" style="user-select:all">${esc(f.file_content)}</pre>`).join('');
+    $('saveBtn').textContent='✓ Approved';$('saveBtn').disabled=true;
+    $('wCk').style.display='none';
   }catch(e){toast(e.message,1)}
 }
 
@@ -533,38 +544,96 @@ async function loadConns(){
       <td class="jp">${esc(c.database_name)}</td><td class="jp">${esc(c.username)}</td>
       <td><span class="chip ${{ok:'c-ok',failed:'c-err',untested:'c-pend'}[c.status]}">${c.status.toUpperCase()}</span></td>
       <td style="display:flex;gap:6px">
+        <button class="btn sm" onclick="editConn(${c.id})">Edit</button>
         <button class="btn sm" onclick="testC(${c.id},this)">Test</button>
         <button class="btn sm danger" onclick="delC(${c.id})">Del</button></td></tr>`).join('')
       :'<tr><td colspan="8" class="jp">Belum ada connection.</td></tr>';
   }catch(e){$('connRows').innerHTML=`<tr><td colspan="8" class="jp" style="color:var(--red)">${esc(e.message)}</td></tr>`}
 }
-let cRoleVal='source';
+let cRoleVal='source', editConnId=null;
 document.querySelectorAll('#cRole button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#cRole button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');cRoleVal=b.dataset.r});
-function openConn(){$('cModal').classList.add('on');$('cTest').textContent='belum ditest';
-  $('cTest').className='tline';sugName()}
-function sugName(){$('cSug').textContent=abbr[$('cEng').value]+'_'+($('cDb').value||'DB')}
-async function saveConn(silent){
+function openConn(){editConnId=null;$('cTitle').textContent='New Connection';
+  $('cNm').value='';$('cDb').value='';$('cHost').value='';$('cPort').value='';$('cUser').value='';$('cPass').value='';
+  $('cEng').value='oracle';cRoleVal='source';
+  document.querySelectorAll('#cRole button').forEach(x=>x.classList.remove('on'));
+  document.querySelector('#cRole button[data-r="source"]').classList.add('on');
+  $('cModal').classList.add('on');$('cTest').textContent='belum ditest';$('cTest').className='tline';sugName()}
+
+async function editConn(id){
+  const cs=await api('/api/connections');
+  const c=cs.find(x=>x.id===id); if(!c)return;
+  editConnId=id;$('cTitle').textContent='Edit Connection';
+  $('cNm').value=c.name;$('cEng').value=c.engine;$('cDb').value=c.database_name;
+  $('cHost').value=c.host;$('cPort').value=c.port;$('cUser').value=c.username;$('cPass').value='';
+  cRoleVal=c.role;
+  document.querySelectorAll('#cRole button').forEach(x=>x.classList.remove('on'));
+  document.querySelector(`#cRole button[data-r="${c.role}"]`).classList.add('on');
+  $('cModal').classList.add('on');$('cTest').textContent='belum ditest';$('cTest').className='tline';sugName();
+}
+
+async function testConnInModal(){
+  // save first (create or update), then test
   const body={name:$('cNm').value.trim(),role:cRoleVal,engine:$('cEng').value,
     host:$('cHost').value.trim(),port:+$('cPort').value,database_name:$('cDb').value.trim(),
     username:$('cUser').value.trim(),password:$('cPass').value};
-  if(!body.name||!body.host||!body.port){toast('Lengkapi name/host/port',1);return null}
-  try{await api('/api/connections',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    if(!silent){$('cModal').classList.remove('on');toast('Connection saved');loadConns()}
-    return body.name;
-  }catch(e){toast(e.message,1);return null}
+  if(!body.name||!body.host||!body.port){toast('Lengkapi name/host/port',1);return}
+  try{
+    if(editConnId){
+      await api(`/api/connections/${editConnId}`,{method:'PUT',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }else{
+      await api('/api/connections',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      const cs=await api('/api/connections');
+      const found=cs.find(x=>x.name===body.name);
+      if(found) editConnId=found.id;
+    }
+    $('cTest').textContent='testing…';$('cTest').className='tline';
+    const r=await api(`/api/connections/${editConnId}/test`,{method:'POST'});
+    $('cTest').textContent=r.ok?'✓ connected':'✗ '+r.message;
+    $('cTest').className='tline '+(r.ok?'ok':'bad');
+    loadConns();
+  }catch(e){toast(e.message,1)}
 }
-async function saveConnThenTest(){
-  const name=await saveConn(true);if(!name)return;
-  const cs=await api('/api/connections');
-  const c=cs.find(x=>x.name===name);
-  $('cTest').textContent='testing…';$('cTest').className='tline';
-  const r=await api(`/api/connections/${c.id}/test`,{method:'POST'});
-  $('cTest').textContent=r.ok?'✓ connected':'✗ '+r.message;
-  $('cTest').className='tline '+(r.ok?'ok':'bad');
-  loadConns();
+
+function sugName(){$('cSug').textContent=abbr[$('cEng').value]+'_'+($('cDb').value||'DB')}
+async function saveConn(){
+  const body={name:$('cNm').value.trim(),role:cRoleVal,engine:$('cEng').value,
+    host:$('cHost').value.trim(),port:+$('cPort').value,database_name:$('cDb').value.trim(),
+    username:$('cUser').value.trim(),password:$('cPass').value};
+  if(!body.name||!body.host||!body.port){toast('Lengkapi name/host/port',1);return}
+  try{
+    if(editConnId){
+      await api(`/api/connections/${editConnId}`,{method:'PUT',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }else{
+      await api('/api/connections',{method:'POST',
+        headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    }
+    $('cModal').classList.remove('on');toast('Connection saved');loadConns();
+  }catch(e){toast(e.message,1)}
+}
+
+async function editJob(id){
+  const j=await api('/api/jobs/'+id);
+  editJobId=id;$('wizTitle').textContent='Edit Job: '+j.job_name;
+  const srcs=await api('/api/connections?role=source');
+  const tgts=await api('/api/connections?role=target');
+  $('wSrc').innerHTML=srcs.map(c=>`<option value="${c.id}" data-eng="${c.engine}" ${c.id===j.src_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" ${c.id===j.tgt_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wSs').value=j.src_schema;$('wTs').value=j.tgt_schema;
+  $('wTb').value=j.table_name;$('wWm').value=j.watermark_col;
+  $('wRet').value=j.retention_days;$('wBs').value=j.batch_size;$('wBd').value=j.batch_delay_ms;
+  $('wSch').checked=!!j.schedule_enabled;$('wSt').value=j.schedule_time||'02:00';
+  $('wName').value=j.job_name;
+  mode=j.mode;
+  document.querySelectorAll('#modeSeg button').forEach(x=>{x.classList.remove('on','red');
+    if(x.dataset.m===mode){x.classList.add('on');if(mode==='delete')x.classList.add('red')}});
+  $('wCk').classList.remove('on');$('wCk').style.display='';
+  $('saveBtn').textContent='Save & Approve';$('saveBtn').disabled=true;
+  step=0;renderStep();go('wizard');
 }
 async function testC(id,btn){btn.textContent='…';
   const r=await api(`/api/connections/${id}/test`,{method:'POST'});
