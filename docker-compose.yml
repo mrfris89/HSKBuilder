@@ -1,0 +1,18 @@
+services:
+  strata-app:
+    build: .
+    container_name: strata-app
+    ports:
+      - "5200:5200"
+    environment:
+      # MySQL Repository STRATA — SESUAIKAN dengan MySQL yang lo siapkan
+      REPO_HOST: ${REPO_HOST:-host.docker.internal}
+      REPO_PORT: ${REPO_PORT:-3306}
+      REPO_DB: ${REPO_DB:-strata}
+      REPO_USER: ${REPO_USER:-strata}
+      REPO_PASSWORD: ${REPO_PASSWORD:-strata123}
+      # Kunci enkripsi password connection (ganti di produksi!)
+      FERNET_KEY: ${FERNET_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

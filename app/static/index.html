@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>STRATA — Housekeeping Job Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0b1016;--panel:#111823;--panel2:#0e141d;--line:#1e2a38;--line2:#2b3b4e;
+--text:#dbe5ef;--muted:#7f92a6;--faint:#4d5f73;--cyan:#39d4c8;--green:#4ee38a;
+--amber:#f5b544;--red:#ff5d6c;--blue:#5b9dff;--violet:#a98bff;--r:6px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:radial-gradient(1200px 600px at 80% -10%,#12202b,transparent 60%),var(--ink);
+color:var(--text);font-family:'Space Grotesk',sans-serif;font-size:14px;line-height:1.5;min-height:100vh}
+.mono{font-family:'JetBrains Mono',monospace}
+header{display:flex;align-items:center;gap:16px;padding:13px 22px;border-bottom:1px solid var(--line);
+background:linear-gradient(180deg,#0f1620,#0b1016);position:sticky;top:0;z-index:30}
+.glyph{width:24px;height:24px;position:relative}
+.glyph i{position:absolute;left:0;right:0;height:4px;border-radius:1px;background:var(--cyan)}
+.glyph i:nth-child(1){top:1px;opacity:.4}.glyph i:nth-child(2){top:7px;opacity:.6}
+.glyph i:nth-child(3){top:13px;opacity:.85}.glyph i:nth-child(4){top:19px;background:var(--faint);opacity:.5}
+.brand{display:flex;align-items:center;gap:11px}
+.brand b{font-weight:700;letter-spacing:.14em;font-size:15px}
+.spacer{flex:1}
+nav{display:flex;gap:4px}
+nav button{background:transparent;border:0;color:var(--muted);font-family:inherit;font-size:12.5px;
+font-weight:500;padding:7px 14px;border-radius:20px;cursor:pointer}
+nav button.on{background:var(--line2);color:var(--text)}
+.pill{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);
+border:1px solid var(--line);padding:6px 11px;border-radius:20px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+main{max-width:1200px;margin:0 auto;padding:26px 22px 60px}
+.view{display:none}.view.on{display:block}
+h1{font-size:22px;font-weight:600}
+.sub{color:var(--muted);font-size:12.5px;margin-top:4px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px}
+.btn{font-family:inherit;font-weight:600;font-size:12.5px;border-radius:var(--r);cursor:pointer;
+padding:9px 15px;border:1px solid var(--line2);background:var(--panel);color:var(--text)}
+.btn.primary{background:var(--cyan);color:#04120f;border-color:var(--cyan)}
+.btn.dl{background:rgba(169,139,255,.1);border-color:rgba(169,139,255,.4);color:var(--violet)}
+.btn.danger{border-color:rgba(255,93,108,.4);color:var(--red)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.sm{padding:6px 11px;font-size:11.5px}
+table.tbl{width:100%;border-collapse:collapse;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+font-weight:500;padding:11px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.tbl td{padding:12px 14px;border-bottom:1px solid var(--panel);font-size:12.5px;vertical-align:middle}
+.jname{font-weight:600}.jp{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)}
+.chip{display:inline-flex;font-size:10px;font-weight:700;padding:3px 9px;border-radius:12px}
+.c-del{background:rgba(255,93,108,.14);color:var(--red)}
+.c-keep{background:rgba(245,181,68,.14);color:var(--amber)}
+.c-ok{background:rgba(78,227,138,.14);color:var(--green)}
+.c-pend{background:rgba(169,139,255,.14);color:var(--violet)}
+.c-src{background:rgba(91,157,255,.14);color:var(--blue)}
+.c-warn{background:rgba(245,181,68,.14);color:var(--amber)}
+.c-err{background:rgba(255,93,108,.14);color:var(--red)}
+.card{border:1px solid var(--line);border-radius:var(--r);background:var(--panel2);padding:22px}
+.field{margin-bottom:14px}
+.field>label{display:block;font-size:11px;color:var(--muted);margin-bottom:6px}
+.hint{font-size:10.5px;color:var(--faint);margin-top:5px}
+.r2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.r3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+input,select{width:100%;background:var(--panel);border:1px solid var(--line2);color:var(--text);
+padding:9px 11px;border-radius:var(--r);font-family:'JetBrains Mono',monospace;font-size:12.5px}
+input:focus,select:focus{outline:none;border-color:var(--cyan)}
+.steps{display:flex;margin:20px 0 24px;border:1px solid var(--line);border-radius:var(--r);
+overflow:hidden;background:var(--panel)}
+.step{flex:1;padding:12px;display:flex;align-items:center;gap:9px;border-right:1px solid var(--line)}
+.step:last-child{border-right:0}
+.step .n{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--faint);display:flex;
+align-items:center;justify-content:center;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--faint)}
+.step .t{font-size:11px;color:var(--muted)}
+.step.on .n{border-color:var(--cyan);color:var(--cyan)}
+.step.on .t{color:var(--text)}
+.step.done .n{background:var(--green);border-color:var(--green);color:#04120f}
+.sb{display:none}.sb.on{display:block}
+.wn{display:flex;justify-content:space-between;margin-top:22px;padding-top:18px;border-top:1px solid var(--line)}
+.strip{display:flex;gap:10px;border:1px solid rgba(245,181,68,.35);background:rgba(245,181,68,.07);
+border-radius:var(--r);padding:11px 13px;margin-top:8px;font-size:11px;color:#e8cf9f}
+.strip.i{border-color:var(--line2);background:var(--panel);color:var(--muted)}
+.fpill{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:var(--r);
+padding:13px 15px;margin-bottom:2px;background:var(--panel);cursor:pointer}
+.fpill .fi{width:32px;height:32px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700}
+.fi.kjb{background:rgba(169,139,255,.16);color:var(--violet)}
+.fi.ktr{background:rgba(91,157,255,.16);color:var(--blue)}
+.fpill .ft{flex:1}.fpill .ft b{display:block;font-size:13px}
+.fpill .ft small{color:var(--muted);font-size:10.5px}
+pre{font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.65;padding:14px;
+overflow:auto;color:#c7d4e2;max-height:300px;background:#080d13;border:1px solid var(--line);
+border-radius:0 0 var(--r) var(--r);margin-bottom:10px;display:none;white-space:pre-wrap}
+pre.on{display:block}
+.appr{display:flex;align-items:center;gap:14px;border:1px solid var(--line2);border-radius:var(--r);
+padding:15px 18px;margin-top:18px;background:var(--panel)}
+.appr .ck{width:20px;height:20px;border-radius:5px;border:1.5px solid var(--faint);cursor:pointer;
+display:flex;align-items:center;justify-content:center}
+.appr .ck.on{background:var(--green);border-color:var(--green)}
+.appr .ck.on::after{content:"✓";color:#04120f;font-size:12px;font-weight:700}
+.appr .tx{flex:1;font-size:12px;color:var(--muted)}
+.filters{display:flex;gap:12px;margin:18px 0 16px;flex-wrap:wrap;align-items:flex-end}
+.filters .f{display:flex;flex-direction:column;gap:5px}
+.filters label{font-size:10px;text-transform:uppercase;color:var(--faint)}
+.filters input,.filters select{min-width:140px}
+.subtbl{width:100%;border-collapse:collapse}
+.subtbl th{font-size:9.5px;text-transform:uppercase;color:var(--faint);text-align:left;
+padding:8px 14px;background:var(--panel2);border-bottom:1px solid var(--line)}
+.subtbl td{padding:7px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;
+border-bottom:1px solid var(--panel);color:var(--muted)}
+.modal{display:none;position:fixed;inset:0;z-index:40;background:rgba(4,8,12,.75);
+align-items:center;justify-content:center;padding:20px}
+.modal.on{display:flex}
+.mbox{background:var(--panel2);border:1px solid var(--line2);border-radius:10px;width:100%;
+max-width:520px;padding:24px;max-height:90vh;overflow:auto}
+.mbox h2{font-size:16px;margin-bottom:4px}
+.mfoot{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.tline{font-size:11.5px;font-family:'JetBrains Mono',monospace;color:var(--muted);margin:10px 0}
+.tline.ok{color:var(--green)}.tline.bad{color:var(--red)}
+.seg{display:flex;background:var(--panel);border:1px solid var(--line2);border-radius:var(--r);padding:3px;gap:3px}
+.seg button{flex:1;background:transparent;border:0;color:var(--muted);padding:8px;border-radius:4px;
+font-family:inherit;font-size:11.5px;cursor:pointer;font-weight:500}
+.seg button.on{background:var(--line2);color:var(--text)}
+.seg button.on.red{background:rgba(255,93,108,.15);color:var(--red)}
+.toast{position:fixed;bottom:20px;right:20px;background:var(--panel);border:1px solid var(--line2);
+border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
+.toast.on{display:block}.toast.err{border-color:var(--red);color:var(--red)}
+::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:var(--line2);border-radius:8px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><div class="glyph"><i></i><i></i><i></i><i></i></div><b>STRATA</b></div>
+  <div class="spacer"></div>
+  <nav>
+    <button class="on" data-v="config">Configuration</button>
+    <button data-v="monitor">Monitor</button>
+    <button data-v="admin">Admin</button>
+  </nav>
+  <div style="width:12px"></div>
+  <div class="pill"><span class="dot" id="repoDot"></span> Repository</div>
+</header>
+
+<main>
+
+<!-- CONFIG -->
+<section class="view on" id="v-config">
+  <div class="head">
+    <div><h1>Configuration</h1><div class="sub">Housekeeping jobs. Output: KJB + KTR siap import Pentaho Spoon.</div></div>
+    <button class="btn primary" onclick="openWizard()">+ New Job</button>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Job name</th><th>Source → Target · table · retensi</th><th>Mode</th><th>Schedule info</th><th>Approval</th><th></th></tr></thead>
+    <tbody id="jobRows"><tr><td colspan="6" class="jp">loading…</td></tr></tbody>
+  </table>
+</section>
+
+<!-- WIZARD -->
+<section class="view" id="v-wizard">
+  <div class="jp" style="cursor:pointer;margin-bottom:12px" onclick="go('config')">← Configuration</div>
+  <h1 id="wizTitle">New Housekeeping Job</h1>
+  <div class="sub">Generate KJB + KTR. Range-only strategy.</div>
+  <div class="steps">
+    <div class="step on" data-s="0"><div class="n">1</div><div class="t">Connection</div></div>
+    <div class="step" data-s="1"><div class="n">2</div><div class="t">Table &amp; watermark</div></div>
+    <div class="step" data-s="2"><div class="n">3</div><div class="t">Mode &amp; batch</div></div>
+    <div class="step" data-s="3"><div class="n">4</div><div class="t">Schedule info</div></div>
+    <div class="step" data-s="4"><div class="n">5</div><div class="t">Review &amp; approve</div></div>
+  </div>
+  <div class="card">
+    <div class="sb on" data-b="0">
+      <div class="r2">
+        <div class="field"><label>Source connection (role=source)</label>
+          <select id="wSrc" onchange="genName()"></select></div>
+        <div class="field"><label>Target archive (role=target)</label>
+          <select id="wTgt"></select></div>
+      </div>
+      <div class="r2">
+        <div class="field"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
+        <div class="field"><label>Target schema</label><input id="wTs" value=""></div>
+      </div>
+      <div class="strip i">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name.</div>
+    </div>
+    <div class="sb" data-b="1">
+      <div class="field"><label>Table name</label><input id="wTb" oninput="genName()"></div>
+      <div class="r2">
+        <div class="field"><label>Watermark column (DATE/TIMESTAMP)</label><input id="wWm" placeholder="trx_date"></div>
+        <div class="field"><label>Retensi (hari)</label><input id="wRet" type="number" value="90" oninput="genName()">
+          <div class="hint">Cutoff dikunci 00:00 hari-H saat run di Pentaho.</div></div>
+      </div>
+      <div class="strip">! Range-only. DELETE pakai WHERE watermark &lt; cutoff setelah VERIFY count cocok. Duplikat identik tak terbedakan.</div>
+    </div>
+    <div class="sb" data-b="2">
+      <div class="field"><label>Mode retensi source</label>
+        <div class="seg" style="max-width:360px" id="modeSeg">
+          <button class="on red" data-m="delete">Delete after verify</button>
+          <button data-m="keep">Keep (soft archive)</button>
+        </div></div>
+      <div class="r2" style="max-width:480px">
+        <div class="field"><label>Batch size</label><input id="wBs" type="number" value="5000"></div>
+        <div class="field"><label>Jeda antar-batch (ms)</label><input id="wBd" type="number" value="200"></div>
+      </div>
+      <div class="strip i">VERIFY = hard gate di KJB. PURGE tidak jalan bila COUNT source ≠ target.</div>
+    </div>
+    <div class="sb" data-b="3">
+      <div class="field"><label><input type="checkbox" id="wSch" style="width:auto;margin-right:8px">Job dijadwalkan (metadata saja — scheduler dihandle Pentaho/cron)</label></div>
+      <div class="r2" style="max-width:400px">
+        <div class="field"><label>Preset</label><select><option>Harian</option></select></div>
+        <div class="field"><label>Jam mulai (server)</label><input id="wSt" type="time" value="02:00"></div>
+      </div>
+      <div class="strip i">Eksekusi via cron: kitchen.sh -file=/path/job.kjb. STRATA hanya baca log yang ditulis Pentaho ke MySQL.</div>
+    </div>
+    <div class="sb" data-b="4">
+      <div class="field"><label>Job name (auto — editable, tolak duplikat)</label>
+        <input id="wName">
+        <div class="hint" id="nameHint">format: rdbms_schema_table_retensi</div></div>
+      <div id="filePreview"></div>
+      <div class="appr">
+        <div class="ck" id="wCk" onclick="this.classList.toggle('on');saveBtn.disabled=!this.classList.contains('on')"></div>
+        <div class="tx"><b style="color:var(--text)">Sudah review KJB & KTR.</b> Save → generate versi → approve → download terbuka.</div>
+      </div>
+    </div>
+    <div class="wn">
+      <button class="btn" id="prevBtn" onclick="mv(-1)" disabled>← Back</button>
+      <div style="display:flex;gap:10px">
+        <button class="btn" onclick="go('config')">Cancel</button>
+        <button class="btn primary" id="nextBtn" onclick="mv(1)">Next →</button>
+        <button class="btn primary" id="saveBtn" onclick="saveJob()" disabled style="display:none">Save &amp; Approve</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DETAIL -->
+<section class="view" id="v-detail">
+  <div class="jp" style="cursor:pointer;margin-bottom:12px" onclick="go('config')">← Configuration</div>
+  <div class="head">
+    <div><h1 class="mono" style="font-size:18px" id="dName">—</h1><div class="sub" id="dSub"></div></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn danger" onclick="delJob()">Delete</button>
+      <button class="btn dl" id="dDl" onclick="dlJob()">↓ Download KJB/KTR</button>
+    </div>
+  </div>
+  <div class="r2" style="margin-bottom:20px">
+    <div class="card" id="dDef"></div>
+    <div class="card" id="dSch"></div>
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <b style="font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint)">Generated files</b>
+    <select id="dVer" style="width:auto" onchange="loadFiles()"></select>
+  </div>
+  <div id="dFiles"></div>
+  <div class="appr" id="dApprove" style="display:none">
+    <div class="ck" id="dCk" onclick="this.classList.toggle('on');apprBtn.disabled=!this.classList.contains('on')"></div>
+    <div class="tx"><b style="color:var(--text)">Review file versi ini lalu approve.</b></div>
+    <button class="btn primary" id="apprBtn" onclick="approveVer()" disabled>Approve versi ini</button>
+  </div>
+</section>
+
+<!-- MONITOR -->
+<section class="view" id="v-monitor">
+  <h1>Monitor · Historical</h1>
+  <div class="sub">Log ditulis Pentaho ke MySQL STRATA. Klik baris untuk detail batch.</div>
+  <div class="filters">
+    <div class="f"><label>Source RDBMS</label>
+      <select id="mR"><option value="">All</option><option value="oracle">Oracle</option>
+      <option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select></div>
+    <div class="f"><label>Job name contains</label><input id="mJ" placeholder="trxprod / _90d"></div>
+    <div class="f"><label>Date from *</label><input id="mF" type="date"></div>
+    <div class="f"><label>Date to *</label><input id="mT" type="date"></div>
+    <div class="f"><label>Status</label>
+      <select id="mS"><option value="">All</option><option>OK</option><option>MISMATCH</option>
+      <option>SKIPPED</option><option>RUNNING</option><option>ERROR</option></select></div>
+    <button class="btn primary sm" onclick="loadMonitor()">Filter</button>
+  </div>
+  <table class="tbl">
+    <thead><tr><th></th><th>Run ID</th><th>Job</th><th>Cutoff</th><th>Rows</th><th>Batches</th><th>Dur</th><th>Status</th><th>Finished</th></tr></thead>
+    <tbody id="monRows"><tr><td colspan="9" class="jp">set tanggal lalu Filter</td></tr></tbody>
+  </table>
+</section>
+
+<!-- ADMIN -->
+<section class="view" id="v-admin">
+  <div class="head">
+    <div><h1>Admin · Connections</h1><div class="sub">Role wajib. Password encrypted, masked.</div></div>
+    <button class="btn primary" onclick="openConn()">+ Add Connection</button>
+  </div>
+  <table class="tbl">
+    <thead><tr><th>Name</th><th>Role</th><th>Engine</th><th>Host</th><th>DB</th><th>User</th><th>Status</th><th></th></tr></thead>
+    <tbody id="connRows"><tr><td colspan="8" class="jp">loading…</td></tr></tbody>
+  </table>
+</section>
+
+</main>
+
+<!-- CONN MODAL -->
+<div class="modal" id="cModal">
+  <div class="mbox">
+    <h2 id="cTitle">Connection</h2>
+    <div class="sub" style="margin-bottom:16px">Role menentukan ketersediaan di New Job.</div>
+    <div class="field"><label>Role</label>
+      <div class="seg" id="cRole">
+        <button class="on" data-r="source">Source</button>
+        <button data-r="target">Target archive</button>
+      </div></div>
+    <div class="r2">
+      <div class="field"><label>Engine</label>
+        <select id="cEng" onchange="sugName()"><option value="oracle">Oracle</option>
+        <option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select></div>
+      <div class="field"><label>Database / SID</label><input id="cDb" oninput="sugName()"></div>
+    </div>
+    <div class="field"><label>Name</label><input id="cNm">
+      <div class="hint">Suggestion: <span class="mono" id="cSug" style="color:var(--cyan);cursor:pointer"
+        onclick="cNm.value=this.textContent">—</span></div></div>
+    <div class="r2">
+      <div class="field"><label>Host</label><input id="cHost"></div>
+      <div class="field"><label>Port</label><input id="cPort" type="number"></div>
+    </div>
+    <div class="r2">
+      <div class="field"><label>Username</label><input id="cUser"></div>
+      <div class="field"><label>Password</label><input id="cPass" type="password"></div>
+    </div>
+    <div class="tline" id="cTest">belum ditest</div>
+    <div class="mfoot">
+      <button class="btn" onclick="cModal.classList.remove('on')">Cancel</button>
+      <button class="btn" onclick="saveConnThenTest()">Save + Test</button>
+      <button class="btn primary" onclick="saveConn()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let currentJobId=null, editJobId=null;
+
+// ── util ──
+async function api(path,opt){
+  const r=await fetch(path,opt);
+  if(!r.ok){const e=await r.json().catch(()=>({detail:r.statusText}));throw new Error(e.detail||'error')}
+  return r.json();
+}
+function toast(msg,err){const t=$('toast');t.textContent=msg;t.className='toast on'+(err?' err':'');
+  setTimeout(()=>t.classList.remove('on'),3500)}
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ── nav ──
+function go(v){document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));
+  $('v-'+v).classList.add('on');
+  const nv=(v==='detail'||v==='wizard')?'config':v;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===nv));
+  window.scrollTo(0,0)}
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{go(b.dataset.v);
+  if(b.dataset.v==='config')loadJobs();if(b.dataset.v==='admin')loadConns();
+  if(b.dataset.v==='monitor')initMonitorDates()});
+
+// ── CONFIG: jobs list ──
+async function loadJobs(){
+  try{
+    const jobs=await api('/api/jobs');
+    $('jobRows').innerHTML = jobs.length? jobs.map(j=>`
+      <tr style="cursor:pointer" onclick="openDetail(${j.id})">
+        <td><div class="jname mono">${esc(j.job_name)}</div></td>
+        <td><div class="jp" style="color:var(--text)">${esc(j.src_db)} → ${esc(j.tgt_db)}</div>
+            <div class="jp">${esc(j.src_engine)}→${esc(j.tgt_engine)} · ${esc(j.table_name)} · ${j.retention_days}d</div></td>
+        <td><span class="chip ${j.mode==='delete'?'c-del':'c-keep'}">${j.mode.toUpperCase()}</span></td>
+        <td><span class="chip ${j.schedule_enabled?'c-ok':'c-pend'}" style="${j.schedule_enabled?'':'background:rgba(127,146,166,.1);color:var(--muted)'}">${j.schedule_enabled?'DAILY '+j.schedule_time:'MANUAL'}</span></td>
+        <td><span class="chip ${j.approval_status==='approved'?'c-ok':'c-pend'}">${j.approval_status==='approved'?'APPROVED v'+j.active_version:'NEEDS APPROVAL'}</span></td>
+        <td><button class="btn sm dl" ${j.approval_status!=='approved'?'disabled':''}
+             onclick="event.stopPropagation();window.location='/api/jobs/${j.id}/download'">↓ KJB/KTR</button></td>
+      </tr>`).join('') : '<tr><td colspan="6" class="jp">Belum ada job. Klik + New Job.</td></tr>';
+    $('repoDot').style.background='var(--green)';
+  }catch(e){$('jobRows').innerHTML=`<tr><td colspan="6" class="jp" style="color:var(--red)">Repo error: ${esc(e.message)} — cek koneksi MySQL & schema.sql</td></tr>`;
+    $('repoDot').style.background='var(--red)'}
+}
+
+// ── WIZARD ──
+let step=0,mode='delete';
+async function openWizard(){
+  editJobId=null;$('wizTitle').textContent='New Housekeeping Job';
+  const srcs=await api('/api/connections?role=source');
+  const tgts=await api('/api/connections?role=target');
+  if(!srcs.length||!tgts.length){toast('Buat connection source & target dulu di Admin',1);go('admin');loadConns();return}
+  $('wSrc').innerHTML=srcs.map(c=>`<option value="${c.id}" data-eng="${c.engine}">${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}">${esc(c.name)} · ${c.engine}</option>`).join('');
+  step=0;renderStep();go('wizard');genName();
+}
+function renderStep(){
+  document.querySelectorAll('.step').forEach(s=>{const n=+s.dataset.s;
+    s.classList.toggle('on',n===step);s.classList.toggle('done',n<step)});
+  document.querySelectorAll('.sb').forEach(b=>b.classList.toggle('on',+b.dataset.b===step));
+  $('prevBtn').disabled=step===0;
+  $('nextBtn').style.display=step===4?'none':'inline-block';
+  $('saveBtn').style.display=step===4?'inline-block':'none';
+  if(step===4)previewFiles();
+}
+function mv(d){step=Math.max(0,Math.min(4,step+d));renderStep()}
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.remove('on','red'));
+  b.classList.add('on');if(b.dataset.m==='delete')b.classList.add('red');mode=b.dataset.m});
+const abbr={oracle:'ora',postgresql:'pgs',mysql:'msq'};
+function genName(){
+  const opt=$('wSrc').selectedOptions[0];
+  const eng=opt?abbr[opt.dataset.eng]:'ora';
+  const sc=($('wSs').value||'schema').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const tb=($('wTb').value||'table').toLowerCase().replace(/[^a-z0-9_]/g,'');
+  $('wName').value=`${eng}_${sc}_${tb}_${$('wRet').value||0}d`;
+}
+function previewFiles(){
+  $('filePreview').innerHTML=`
+    <div class="strip i" style="margin-bottom:12px">File final digenerate server saat Save (dialect: ${esc($('wSrc').selectedOptions[0]?.dataset.eng||'')}). Preview penuh tersedia di halaman detail setelah save.</div>
+    <div class="fpill"><div class="fi kjb">KJB</div><div class="ft"><b>${esc($('wName').value)}.kjb</b>
+      <small>Orchestrator: CUTOFF → RUN_KTR → VERIFY (hard gate) → ${mode==='delete'?'PURGE':'KEEP'} → log ke task_summary</small></div></div>
+    <div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc($('wName').value)}.ktr</b>
+      <small>Transformation: READ_SOURCE → WRITE_TARGET (batch ${esc($('wBs').value)})</small></div></div>`;
+}
+async function saveJob(){
+  const body={job_name:$('wName').value.trim(),
+    src_conn_id:+$('wSrc').value,tgt_conn_id:+$('wTgt').value,
+    src_schema:$('wSs').value.trim(),tgt_schema:$('wTs').value.trim(),
+    table_name:$('wTb').value.trim(),watermark_col:$('wWm').value.trim(),
+    retention_days:+$('wRet').value,mode,batch_size:+$('wBs').value,
+    batch_delay_ms:+$('wBd').value,schedule_enabled:$('wSch').checked,
+    schedule_time:$('wSt').value};
+  if(!body.table_name||!body.watermark_col||!body.src_schema){toast('Lengkapi schema, table, watermark',1);return}
+  try{
+    let res;
+    if(editJobId){res=await api(`/api/jobs/${editJobId}`,{method:'PUT',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      res.job_id=editJobId}
+    else{res=await api('/api/jobs',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})}
+    await api(`/api/jobs/${res.job_id}/approve?version=${res.version}`,{method:'POST'});
+    toast('Job saved & approved v'+res.version);
+    go('config');loadJobs();
+  }catch(e){toast(e.message,1)}
+}
+
+// ── DETAIL ──
+async function openDetail(id){
+  currentJobId=id;
+  const j=await api('/api/jobs/'+id);
+  $('dName').textContent=j.job_name;
+  $('dSub').textContent=`${j.table_name} · ${j.src_schema} → ${j.tgt_schema}`;
+  $('dDef').innerHTML=`<h3 style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:12px">Definition</h3>
+    ${dr('Source',j.src_name+' · '+j.src_engine)}${dr('Target',j.tgt_name+' · '+j.tgt_engine)}
+    ${dr('Watermark',j.watermark_col)}${dr('Retensi',j.retention_days+' hari')}
+    ${dr('Key strategy','range-only')}${dr('Mode',j.mode)}${dr('Batch / jeda',j.batch_size+' / '+j.batch_delay_ms+'ms')}`;
+  $('dSch').innerHTML=`<h3 style="font-size:11px;text-transform:uppercase;color:var(--faint);margin-bottom:12px">Schedule &amp; Approval</h3>
+    ${dr('Scheduled',j.schedule_enabled?'daily '+j.schedule_time:'manual')}
+    ${dr('Approval',j.approval_status)}${dr('Active version','v'+j.active_version)}
+    ${dr('Log connection',j.log_connection)}`;
+  $('dVer').innerHTML=j.versions.map(v=>`<option value="${v.version}">v${v.version}${v.is_active?' · active':v.approved?' · approved':' · draft'}</option>`).join('');
+  $('dDl').disabled=j.approval_status!=='approved';
+  go('detail');loadFiles();
+}
+const dr=(k,v)=>`<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--panel);font-size:12.5px">
+  <span style="color:var(--muted)">${k}</span><span class="mono">${esc(v)}</span></div>`;
+async function loadFiles(){
+  const files=await api(`/api/jobs/${currentJobId}/files?version=${$('dVer').value}`);
+  $('dFiles').innerHTML=files.map((f,i)=>`
+    <div class="fpill" onclick="$('pc${i}').classList.toggle('on')">
+      <div class="fi ${f.file_type}">${f.file_type.toUpperCase()}</div>
+      <div class="ft"><b>${esc($('dName').textContent)}.${f.file_type}</b>
+      <small>dialect: ${esc(f.dialect)} · ${f.approved?'approved':'draft'}</small></div>
+      <span class="jp">›</span></div>
+    <pre id="pc${i}">${esc(f.file_content)}</pre>`).join('');
+  const anyDraft=files.some(f=>!f.approved);
+  $('dApprove').style.display=anyDraft?'flex':'none';
+  $('dCk').classList.remove('on');$('apprBtn').disabled=true;
+}
+async function approveVer(){
+  try{await api(`/api/jobs/${currentJobId}/approve?version=${$('dVer').value}`,{method:'POST'});
+    toast('Approved v'+$('dVer').value);openDetail(currentJobId)}catch(e){toast(e.message,1)}
+}
+function dlJob(){window.location=`/api/jobs/${currentJobId}/download`}
+async function delJob(){
+  if(!confirm('Hapus job ini? File & versi ikut terhapus.'))return;
+  try{await api('/api/jobs/'+currentJobId,{method:'DELETE'});toast('Job dihapus');go('config');loadJobs()}
+  catch(e){toast(e.message,1)}
+}
+
+// ── MONITOR ──
+async function initMonitorDates(){
+  const d=await api('/api/defaults/dates');
+  if(!$('mF').value){$('mF').value=d.date_from;$('mT').value=d.date_to}
+  loadMonitor();
+}
+async function loadMonitor(){
+  if(!$('mF').value||!$('mT').value){toast('Date from & to wajib',1);return}
+  const p=new URLSearchParams({date_from:$('mF').value,date_to:$('mT').value});
+  if($('mR').value)p.append('rdbms',$('mR').value);
+  if($('mJ').value)p.append('job_like',$('mJ').value);
+  if($('mS').value)p.append('status',$('mS').value);
+  try{
+    const rows=await api('/api/monitor/summary?'+p);
+    $('monRows').innerHTML=rows.length?rows.map((r,i)=>`
+      <tr style="cursor:pointer" onclick="togDetail('${esc(r.run_id)}',${i})">
+        <td><span class="jp">›</span></td>
+        <td class="jp">${esc(r.run_id)}</td><td class="jp">${esc(r.job_name)}</td>
+        <td class="jp">${esc(r.cutoff_time||'—')}</td>
+        <td class="jp">${(r.total_rows||0).toLocaleString()}</td>
+        <td class="jp">${r.batches||0}</td><td class="jp">${r.duration_sec||0}s</td>
+        <td><span class="chip ${{OK:'c-ok',MISMATCH:'c-err',SKIPPED:'c-warn',ERROR:'c-err',RUNNING:'c-pend'}[r.final_status]||'c-pend'}">${esc(r.final_status)}</span></td>
+        <td class="jp">${esc(r.finished_at||'—')}</td></tr>
+      <tr id="md${i}" style="display:none"><td colspan="9" style="padding:0" id="mdc${i}"></td></tr>`).join('')
+      :'<tr><td colspan="9" class="jp">Tidak ada run di rentang ini. Log muncul setelah Pentaho jalanin KJB.</td></tr>';
+  }catch(e){toast(e.message,1)}
+}
+async function togDetail(runId,i){
+  const row=$('md'+i);
+  if(row.style.display!=='none'){row.style.display='none';return}
+  const det=await api('/api/monitor/detail/'+encodeURIComponent(runId));
+  $('mdc'+i).innerHTML=det.length?`<table class="subtbl">
+    <thead><tr><th>Batch</th><th>Phase</th><th>Rows</th><th>Src/Tgt</th><th>Status</th><th>Error</th></tr></thead>
+    <tbody>${det.map(d=>`<tr><td>#${String(d.batch_no).padStart(3,'0')}</td>
+      <td style="color:${{cutoff:'var(--violet)',copy:'var(--blue)',verify:'var(--green)',purge:'var(--red)',keep:'var(--amber)'}[d.phase]}">${d.phase}</td>
+      <td>${(d.rows_affected||0).toLocaleString()}</td>
+      <td>${d.source_count??'—'} / ${d.target_count??'—'}</td>
+      <td>${esc(d.status||'')}</td><td>${esc(d.error_msg||'')}</td></tr>`).join('')}</tbody></table>`
+    :'<div class="jp" style="padding:12px 14px">task_detail kosong untuk run ini.</div>';
+  row.style.display='table-row';
+}
+
+// ── ADMIN ──
+async function loadConns(){
+  try{
+    const cs=await api('/api/connections');
+    $('connRows').innerHTML=cs.length?cs.map(c=>`
+      <tr><td class="jname mono">${esc(c.name)}</td>
+      <td><span class="chip ${c.role==='source'?'c-src':'c-ok'}">${c.role.toUpperCase()}</span></td>
+      <td class="jp">${esc(c.engine)}</td><td class="jp">${esc(c.host)}:${c.port}</td>
+      <td class="jp">${esc(c.database_name)}</td><td class="jp">${esc(c.username)}</td>
+      <td><span class="chip ${{ok:'c-ok',failed:'c-err',untested:'c-pend'}[c.status]}">${c.status.toUpperCase()}</span></td>
+      <td style="display:flex;gap:6px">
+        <button class="btn sm" onclick="testC(${c.id},this)">Test</button>
+        <button class="btn sm danger" onclick="delC(${c.id})">Del</button></td></tr>`).join('')
+      :'<tr><td colspan="8" class="jp">Belum ada connection.</td></tr>';
+  }catch(e){$('connRows').innerHTML=`<tr><td colspan="8" class="jp" style="color:var(--red)">${esc(e.message)}</td></tr>`}
+}
+let cRoleVal='source';
+document.querySelectorAll('#cRole button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#cRole button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');cRoleVal=b.dataset.r});
+function openConn(){$('cModal').classList.add('on');$('cTest').textContent='belum ditest';
+  $('cTest').className='tline';sugName()}
+function sugName(){$('cSug').textContent=abbr[$('cEng').value]+'_'+($('cDb').value||'DB')}
+async function saveConn(silent){
+  const body={name:$('cNm').value.trim(),role:cRoleVal,engine:$('cEng').value,
+    host:$('cHost').value.trim(),port:+$('cPort').value,database_name:$('cDb').value.trim(),
+    username:$('cUser').value.trim(),password:$('cPass').value};
+  if(!body.name||!body.host||!body.port){toast('Lengkapi name/host/port',1);return null}
+  try{await api('/api/connections',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    if(!silent){$('cModal').classList.remove('on');toast('Connection saved');loadConns()}
+    return body.name;
+  }catch(e){toast(e.message,1);return null}
+}
+async function saveConnThenTest(){
+  const name=await saveConn(true);if(!name)return;
+  const cs=await api('/api/connections');
+  const c=cs.find(x=>x.name===name);
+  $('cTest').textContent='testing…';$('cTest').className='tline';
+  const r=await api(`/api/connections/${c.id}/test`,{method:'POST'});
+  $('cTest').textContent=r.ok?'✓ connected':'✗ '+r.message;
+  $('cTest').className='tline '+(r.ok?'ok':'bad');
+  loadConns();
+}
+async function testC(id,btn){btn.textContent='…';
+  const r=await api(`/api/connections/${id}/test`,{method:'POST'});
+  btn.textContent='Test';toast(r.ok?'✓ connected':'✗ '+r.message,!r.ok);loadConns()}
+async function delC(id){if(!confirm('Hapus connection?'))return;
+  try{await api('/api/connections/'+id,{method:'DELETE'});loadConns()}catch(e){toast(e.message,1)}}
+
+// init
+loadJobs();
+</script>
+</body>
+</html>
