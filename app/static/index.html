@@ -402,6 +402,11 @@ async function api(path,opt){
 function toast(msg,err){const t=$('toast');t.textContent=msg;t.className='toast on'+(err?' err':'');
   setTimeout(()=>t.classList.remove('on'),3500)}
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Harus sinonim dgn _FILE_TYPE_SUFFIX di main.py — nama file fisik yg direferensikan job entry TRANS di KJB.
+const FILE_TYPE_SUFFIX={kjb:'.kjb',ktr:'.ktr',ktr_counts:'_counts.ktr',ktr_maxid:'_maxid.ktr'};
+const fileNameFor=(jobName,fileType)=>`${jobName}${FILE_TYPE_SUFFIX[fileType]||'.'+fileType}`;
+const FILE_TYPE_LABEL={kjb:'KJB',ktr:'KTR',ktr_counts:'KTR (counts)',ktr_maxid:'KTR (max id)'};
+const FILE_TYPE_ICON_CLASS={kjb:'kjb',ktr:'ktr',ktr_counts:'ktr',ktr_maxid:'ktr'};
 
 // ── nav ──
 function go(v){document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));
@@ -525,12 +530,17 @@ function genName(){
   if($('nameHint'))$('nameHint').textContent=`format: rdbms_${rawEng==='mysql'?'database':'schema'}_table_retensi`;
 }
 function previewFiles(){
+  const isIdWm=$('wWm').value.trim().toUpperCase()==='ID';
   $('filePreview').innerHTML=`
     <div class="strip i" style="margin-bottom:12px">File digenerate server saat Save. Setelah save, isi KJB/KTR ditampilkan di bawah — bisa expand & copy-paste.</div>
-    <div class="fpill"><div class="fi kjb">KJB</div><div class="ft"><b>${esc($('wName').value)}.kjb</b>
-      <small>Orchestrator: CUTOFF → RUN_KTR → VERIFY (hard gate) → ${mode==='delete'?'PURGE':'KEEP'} → log ke task_summary</small></div></div>
-    <div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc($('wName').value)}.ktr</b>
-      <small>Transformation: READ_SOURCE → WRITE_TARGET (batch ${esc($('wBs').value)})</small></div></div>`;
+    <div class="fpill"><div class="fi kjb">KJB</div><div class="ft"><b>${esc(fileNameFor($('wName').value,'kjb'))}</b>
+      <small>Orchestrator: CUTOFF → RUN_KTR → GET_COUNTS → VERIFY (hard gate) → ${mode==='delete'?'PURGE':'KEEP'} → log ke task_summary</small></div></div>
+    <div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc(fileNameFor($('wName').value,'ktr'))}</b>
+      <small>Transformation: READ_SOURCE → WRITE_TARGET (batch ${esc($('wBs').value)})</small></div></div>
+    <div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc(fileNameFor($('wName').value,'ktr_counts'))}</b>
+      <small>Transformation: baca COUNT(*) source &amp; target, set variable SRC_COUNT/TGT_COUNT untuk VERIFY</small></div></div>
+    ${isIdWm?`<div class="fpill"><div class="fi ktr">KTR</div><div class="ft"><b>${esc(fileNameFor($('wName').value,'ktr_maxid'))}</b>
+      <small>Transformation: baca MAX(ID) di target, set variable MAX_ID sebelum RUN_KTR</small></div></div>`:''}`;
 }
 async function saveJob(){
   const body={job_name:$('wName').value.trim(),
@@ -554,8 +564,8 @@ async function saveJob(){
     const files=await api(`/api/jobs/${res.job_id}/files?version=${res.version}`);
     $('filePreview').innerHTML=files.map((f,i)=>`
       <div class="fpill" onclick="$('wp${i}').classList.toggle('on')">
-        <div class="fi ${f.file_type}">${f.file_type.toUpperCase()}</div>
-        <div class="ft"><b>${esc(body.job_name)}.${f.file_type}</b>
+        <div class="fi ${FILE_TYPE_ICON_CLASS[f.file_type]||'ktr'}">${FILE_TYPE_LABEL[f.file_type]||f.file_type.toUpperCase()}</div>
+        <div class="ft"><b>${esc(fileNameFor(body.job_name,f.file_type))}</b>
         <small>dialect: ${esc(f.dialect)} · approved v${res.version} · klik untuk expand, bisa copy-paste</small></div>
         <span class="jp">›</span></div>
       <pre id="wp${i}" class="on" style="user-select:all">${esc(f.file_content)}</pre>`).join('');
@@ -639,8 +649,8 @@ async function loadFiles(){
   const files=await api(`/api/jobs/${currentJobId}/files?version=${$('dVer').value}`);
   $('dFiles').innerHTML=files.map((f,i)=>`
     <div class="fpill" onclick="$('pc${i}').classList.toggle('on')">
-      <div class="fi ${f.file_type}">${f.file_type.toUpperCase()}</div>
-      <div class="ft"><b>${esc($('dName').textContent)}.${f.file_type}</b>
+      <div class="fi ${FILE_TYPE_ICON_CLASS[f.file_type]||'ktr'}">${FILE_TYPE_LABEL[f.file_type]||f.file_type.toUpperCase()}</div>
+      <div class="ft"><b>${esc(fileNameFor($('dName').textContent,f.file_type))}</b>
       <small>dialect: ${esc(f.dialect)} · ${f.approved?'approved':'draft'}</small></div>
       <span class="jp">›</span></div>
     <pre id="pc${i}">${esc(f.file_content)}</pre>`).join('');

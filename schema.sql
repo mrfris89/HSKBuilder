@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS job_files (
   id           INT AUTO_INCREMENT PRIMARY KEY,
   job_id       INT NOT NULL,
   version      INT NOT NULL,
-  file_type    ENUM('kjb','ktr') NOT NULL,
+  file_type    ENUM('kjb','ktr','ktr_counts','ktr_maxid') NOT NULL,
   file_content MEDIUMTEXT NOT NULL,
   dialect      VARCHAR(20) NOT NULL,
   approved     TINYINT(1) DEFAULT 0,

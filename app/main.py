@@ -190,10 +190,14 @@ def _gen_and_store(jid: int) -> int:
             "username": os.environ.get("REPO_USER", "strata")}
     ktr = generator.generate_ktr(job, src, tgt)
     kjb = generator.generate_kjb(job, src, tgt, repo)
+    counts_ktr = generator.generate_counts_ktr(job, src, tgt)
+    files = [("kjb", kjb), ("ktr", ktr), ("ktr_counts", counts_ktr)]
+    if job["watermark_col"].strip().upper() == "ID":
+        files.append(("ktr_maxid", generator.generate_maxid_ktr(job, tgt)))
     ver = (q("SELECT COALESCE(MAX(version),0) AS v FROM job_files WHERE job_id=%s",
              (jid,))[0]["v"]) + 1
     dial = src["engine"]
-    for ftype, content in (("kjb", kjb), ("ktr", ktr)):
+    for ftype, content in files:
         q("""INSERT INTO job_files (job_id,version,file_type,file_content,dialect)
              VALUES (%s,%s,%s,%s,%s)""", (jid, ver, ftype, content, dial), fetch=False)
     return ver
@@ -273,9 +277,18 @@ def approve(jid: int, version: int):
     return {"ok": True, "approved_version": version}
 
 
+_FILE_TYPE_SUFFIX = {"kjb": ".kjb", "ktr": ".ktr", "ktr_counts": "_counts.ktr", "ktr_maxid": "_maxid.ktr"}
+
+
+def _filename_for(job_name: str, file_type: str) -> str:
+    """Nama file fisik — HARUS sama persis dengan yang direferensikan job entry TRANS
+    di dalam KJB (generator.py), karena Kitchen mencari file ini relatif ke folder KJB."""
+    return f"{job_name}{_FILE_TYPE_SUFFIX.get(file_type, '.' + file_type)}"
+
+
 @app.get("/api/jobs/{jid}/download")
 def download(jid: int):
-    """ZIP berisi KJB + KTR versi active approved."""
+    """ZIP berisi KJB + semua KTR (main, counts, maxid) versi active approved."""
     job = q("SELECT * FROM jobs WHERE id=%s", (jid,))
     if not job:
         raise HTTPException(404)
@@ -289,7 +302,7 @@ def download(jid: int):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         for f in files:
-            z.writestr(f"{job['job_name']}.{f['file_type']}", f["file_content"])
+            z.writestr(_filename_for(job["job_name"], f["file_type"]), f["file_content"])
     buf.seek(0)
     return Response(buf.read(), media_type="application/zip",
                     headers={"Content-Disposition":
