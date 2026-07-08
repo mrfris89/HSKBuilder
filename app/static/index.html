@@ -175,14 +175,14 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
           <select id="wTgt" onchange="onWTgtChange()"></select></div>
       </div>
       <div class="r2">
-        <div class="field"><label>Source database</label><input id="wSDb" readonly disabled></div>
-        <div class="field"><label>Target database</label><input id="wTDb" readonly disabled></div>
+        <div class="field" id="wSDbField"><label>Source database</label><input id="wSDb" oninput="genName()"></div>
+        <div class="field" id="wTDbField"><label>Target database</label><input id="wTDb"></div>
       </div>
       <div class="r2">
-        <div class="field"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
-        <div class="field"><label>Target schema</label><input id="wTs" value=""></div>
+        <div class="field" id="wSsField"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
+        <div class="field" id="wTsField"><label>Target schema</label><input id="wTs" value=""></div>
       </div>
-      <div class="strip i">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name. Database diambil dari connection (Admin), schema wajib diisi manual — penting terutama untuk PostgreSQL karena GRANT dibatasi per database.schema.table.</div>
+      <div class="strip i" id="wIdentHint">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name.</div>
     </div>
     <div class="sb" data-b="1">
       <div class="field"><label>Table name</label><input id="wTb" oninput="genName()"></div>
@@ -349,8 +349,8 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
       <select id="guConn"></select>
       <div class="hint" id="guConnHint"></div></div>
     <div class="r2">
-      <div class="field"><label>Database</label><input id="guDb" readonly disabled></div>
-      <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
+      <div class="field" id="guDbField"><label>Database</label><input id="guDb" placeholder="database"></div>
+      <div class="field" id="guSchemaField"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
     </div>
     <div class="field"><label>Table</label><input id="guTable" placeholder="transaction"></div>
     <div id="guResult" style="display:none">
@@ -447,14 +447,43 @@ async function openWizard(){
   setWmType('date');
   step=0;renderStep();go('wizard');onWSrcChange();onWTgtChange();
 }
+// Identifier model beda per engine:
+//  - postgresql: database + schema + table semuanya spesifik. Database boleh diedit manual
+//    (default terisi dari connection, tapi user bisa override — 1 connection bisa dipakai
+//    untuk lebih dari 1 database di server Postgres yang sama).
+//  - mysql: database == schema (satu konsep) → field schema disembunyikan, tidak dipakai.
+//  - oracle: hanya schema (owner) yang jadi identifier → field database disembunyikan.
+const ENGINE_IDENT_HINT={
+  postgresql:'PostgreSQL: database, schema, dan table masing-masing spesifik. Database bisa diedit manual bila berbeda dari default connection.',
+  mysql:'MySQL: database = schema (satu konsep) — field schema disembunyikan.',
+  oracle:'Oracle: hanya schema (owner) yang jadi identifier — tidak ada "database" terpisah dari connection.'};
+function applyEngineFields(which,eng){
+  const dbField=$(which==='src'?'wSDbField':'wTDbField');
+  const schField=$(which==='src'?'wSsField':'wTsField');
+  if(eng==='oracle'){
+    dbField.style.display='none';
+    schField.style.display='';
+  }else if(eng==='mysql'){
+    dbField.style.display='';
+    schField.style.display='none';
+  }else{ // postgresql (default)
+    dbField.style.display='';
+    schField.style.display='';
+  }
+  $('wIdentHint').textContent=ENGINE_IDENT_HINT[eng]||ENGINE_IDENT_HINT.postgresql;
+}
 function onWSrcChange(){
   const opt=$('wSrc').selectedOptions[0];
+  const eng=opt?opt.dataset.eng:'';
   $('wSDb').value=opt?opt.dataset.db:'';
+  applyEngineFields('src',eng);
   genName();
 }
 function onWTgtChange(){
   const opt=$('wTgt').selectedOptions[0];
+  const eng=opt?opt.dataset.eng:'';
   $('wTDb').value=opt?opt.dataset.db:'';
+  applyEngineFields('tgt',eng);
 }
 function renderStep(){
   document.querySelectorAll('.step').forEach(s=>{const n=+s.dataset.s;
@@ -484,10 +513,17 @@ function setWmType(wt){
 }
 document.querySelectorAll('#wmTypeSeg button').forEach(b=>b.onclick=()=>setWmType(b.dataset.wt));
 const abbr={oracle:'ora',postgresql:'pgs',mysql:'msq'};
+// MySQL: schema field disembunyikan (database == schema) → ambil dari field database.
+function effSchema(which){
+  const opt=$(which==='src'?'wSrc':'wTgt').selectedOptions[0];
+  const eng=opt?opt.dataset.eng:'';
+  if(eng==='mysql')return $(which==='src'?'wSDb':'wTDb').value.trim();
+  return $(which==='src'?'wSs':'wTs').value.trim();
+}
 function genName(){
   const opt=$('wSrc').selectedOptions[0];
   const eng=opt?abbr[opt.dataset.eng]:'ora';
-  const sc=($('wSs').value||'schema').toLowerCase().replace(/[^a-z0-9]/g,'');
+  const sc=(effSchema('src')||'schema').toLowerCase().replace(/[^a-z0-9]/g,'');
   const tb=($('wTb').value||'table').toLowerCase().replace(/[^a-z0-9_]/g,'');
   $('wName').value=`${eng}_${sc}_${tb}_${$('wRet').value||0}d`;
 }
@@ -502,7 +538,7 @@ function previewFiles(){
 async function saveJob(){
   const body={job_name:$('wName').value.trim(),
     src_conn_id:+$('wSrc').value,tgt_conn_id:+$('wTgt').value,
-    src_schema:$('wSs').value.trim(),tgt_schema:$('wTs').value.trim(),
+    src_schema:effSchema('src'),tgt_schema:effSchema('tgt'),
     table_name:$('wTb').value.trim(),watermark_col:$('wWm').value.trim(),
     retention_days:+$('wRet').value,mode,batch_size:+$('wBs').value,
     batch_delay_ms:+$('wBd').value,schedule_enabled:$('wSch').checked,
@@ -538,8 +574,8 @@ async function saveJob(){
 // ── least-privilege GRANT SQL untuk user connection yang sudah ada, shown alongside KJB/KTR ──
 async function appendUserSql(body){
   const reqs=[
-    {role:'source',connId:body.src_conn_id,schema:body.src_schema,table:body.table_name},
-    {role:'target',connId:body.tgt_conn_id,schema:body.tgt_schema,table:body.table_name},
+    {role:'source',connId:body.src_conn_id,schema:body.src_schema,table:body.table_name,database:$('wSDb').value.trim()},
+    {role:'target',connId:body.tgt_conn_id,schema:body.tgt_schema,table:body.table_name,database:$('wTDb').value.trim()},
   ];
   let html=`<div class="strip i" style="margin:16px 0 12px">Script GRANT least-privilege (scoped ke 1 table) untuk user connection yang sudah ada (STRATA tidak membuat user baru) — review lalu jalankan manual sebagai DBA.</div>`;
   for(const r of reqs){
@@ -547,7 +583,7 @@ async function appendUserSql(body){
     try{
       const g=await api('/api/connections/generate-user-sql',{method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({conn_id:r.connId,schema_name:r.schema,table_name:r.table})});
+        body:JSON.stringify({conn_id:r.connId,schema_name:r.schema,table_name:r.table,database_name:r.database||undefined})});
       html+=`<div class="fpill" onclick="$('gu${r.role}').classList.toggle('on')">
         <div class="fi ${r.role==='source'?'kjb':'ktr'}">SQL</div>
         <div class="ft"><b>${esc(g.username)}</b> · role ${r.role}
@@ -762,6 +798,9 @@ async function editJob(id){
   $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" data-eng="${c.engine}" data-db="${esc(c.database_name)}" ${c.id===j.tgt_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
   onWSrcChange();onWTgtChange();
   $('wSs').value=j.src_schema;$('wTs').value=j.tgt_schema;
+  // MySQL: schema tersimpan == database — sinkronkan field database yg terlihat dgn nilai job.
+  if($('wSrc').selectedOptions[0]?.dataset.eng==='mysql')$('wSDb').value=j.src_schema;
+  if($('wTgt').selectedOptions[0]?.dataset.eng==='mysql')$('wTDb').value=j.tgt_schema;
   $('wTb').value=j.table_name;$('wWm').value=j.watermark_col;
   setWmType(j.watermark_col.trim().toUpperCase()==='ID'?'id':'date');
   $('wRet').value=j.retention_days;$('wBs').value=j.batch_size;$('wBd').value=j.batch_delay_ms;
@@ -784,7 +823,7 @@ async function delC(id){if(!confirm('Hapus connection?'))return;
 async function openGenUser(){
   const cs=await api('/api/connections');
   if(!cs.length){toast('Belum ada connection — tambah dulu di Admin',1);return}
-  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}" data-db="${esc(c.database_name)}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
+  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}" data-db="${esc(c.database_name)}" data-eng="${c.engine}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
   $('guSchema').value='';$('guTable').value='';
   $('guResult').style.display='none';
   updateGuConnHint();
@@ -794,19 +833,37 @@ function updateGuConnHint(){
   const opt=$('guConn').selectedOptions[0];
   if(!opt){$('guConnHint').textContent='';$('guDb').value='';return}
   const privs=opt.dataset.role==='source'?'SELECT, DELETE':'SELECT, INSERT';
+  const eng=opt.dataset.eng;
   $('guDb').value=opt.dataset.db;
-  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table di bawah (schema.table), bukan seluruh schema.`;
+  if(eng==='oracle'){
+    $('guDbField').style.display='none';
+    $('guSchemaField').style.display='';
+    $('guConnHint').textContent=`Oracle: hanya schema (owner) yang dipakai. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (schema.table).`;
+  }else if(eng==='mysql'){
+    $('guDbField').style.display='';
+    $('guSchemaField').style.display='none';
+    $('guConnHint').textContent=`MySQL: database = schema. User "${opt.dataset.user}" akan diberi hak ${privs} pada database.table di atas (schema tidak dipakai).`;
+  }else{
+    $('guDbField').style.display='';
+    $('guSchemaField').style.display='';
+    $('guConnHint').textContent=`PostgreSQL: database, schema, table masing-masing spesifik. Database bisa diedit manual bila berbeda dari default connection. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (database.schema.table).`;
+  }
 }
 function closeGenUser(){$('genUserModal').classList.remove('on')}
 async function doGenUser(){
+  const opt=$('guConn').selectedOptions[0];
   const connId=+$('guConn').value;
-  const schema=$('guSchema').value.trim();
+  const eng=opt?opt.dataset.eng:'';
+  const database=$('guDb').value.trim();
+  const schema=eng==='mysql'?database:$('guSchema').value.trim();
   const table=$('guTable').value.trim();
-  if(!connId||!schema||!table){toast('Pilih connection, isi schema & table',1);return}
+  if(!connId||!table||(eng==='oracle'&&!schema)||(eng!=='oracle'&&!database)||(eng==='postgresql'&&!schema)){
+    toast('Lengkapi connection, database/schema & table',1);return}
   try{
     const r=await api('/api/connections/generate-user-sql',{method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({conn_id:connId,schema_name:schema,table_name:table})});
+      body:JSON.stringify({conn_id:connId,schema_name:schema,table_name:table,
+        database_name:eng==='oracle'?undefined:database})});
     $('guSql').textContent=r.sql;
     $('guResult').style.display='block';
     toast('SQL digenerate — review & jalankan manual sebagai DBA');
