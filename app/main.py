@@ -1,5 +1,8 @@
 """STRATA — Housekeeping Job Generator & Monitor. Port 5200."""
 import io
+import re
+import secrets
+import string
 import zipfile
 from datetime import date, timedelta
 from fastapi import FastAPI, HTTPException
@@ -23,6 +26,13 @@ class ConnIn(BaseModel):
     database_name: str
     username: str
     password: str
+
+
+class GenUserIn(BaseModel):
+    engine: str           # oracle | postgresql | mysql
+    role: str             # source | target
+    schema_name: str
+    username: str
 
 
 class JobIn(BaseModel):
@@ -118,6 +128,32 @@ def test_conn(cid: int):
         return {"ok": False, "message": str(e)[:300]}
 
 
+_IDENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+
+def _gen_password(length: int = 24) -> str:
+    """Random password, hindari karakter yang bisa merusak literal SQL ('/\"/\\)."""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*_+-="
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+@app.post("/api/connections/generate-user-sql")
+def generate_user_sql(g: GenUserIn):
+    """Generate CREATE USER + least-privilege GRANT script (SELECT+DELETE utk source,
+    SELECT+INSERT utk target). STRATA tidak eksekusi ini — DBA jalankan manual setelah review."""
+    if g.engine not in ("oracle", "postgresql", "mysql"):
+        raise HTTPException(400, "engine tidak valid")
+    if g.role not in ("source", "target"):
+        raise HTTPException(400, "role harus source/target")
+    if not _IDENT_RE.match(g.schema_name):
+        raise HTTPException(400, "schema_name tidak valid — huruf/angka/underscore saja")
+    if not _IDENT_RE.match(g.username):
+        raise HTTPException(400, "username tidak valid — huruf/angka/underscore saja")
+    password = _gen_password()
+    sql = dialects.generate_user_sql(g.engine, g.role, g.schema_name, g.username, password)
+    return {"username": g.username, "password": password, "sql": sql}
+
+
 # ══════════════ FASE 3-5: JOBS + GENERATOR + APPROVAL ══════════════
 @app.get("/api/jobs")
 def list_jobs():
@@ -170,7 +206,9 @@ def _gen_and_store(jid: int) -> int:
 def create_job(j: JobIn):
     dup = q("SELECT id FROM jobs WHERE job_name=%s", (j.job_name,))
     if dup:
-        raise HTTPException(409, f"Job name '{j.job_name}' sudah dipakai — tolak duplikat")
+        raise HTTPException(409, {"error": "duplicate_name",
+                                   "message": f"Job name '{j.job_name}' sudah dipakai",
+                                   "existing_job_id": dup[0]["id"]})
     src = q("SELECT * FROM connections WHERE id=%s AND role='source'", (j.src_conn_id,))
     tgt = q("SELECT * FROM connections WHERE id=%s AND role='target'", (j.tgt_conn_id,))
     if not src:
@@ -192,6 +230,11 @@ def create_job(j: JobIn):
 @app.put("/api/jobs/{jid}")
 def update_job(jid: int, j: JobIn):
     """Edit job → re-generate → approval lama gugur."""
+    dup = q("SELECT id FROM jobs WHERE job_name=%s AND id!=%s", (j.job_name, jid))
+    if dup:
+        raise HTTPException(409, {"error": "duplicate_name",
+                                   "message": f"Job name '{j.job_name}' sudah dipakai",
+                                   "existing_job_id": dup[0]["id"]})
     q("""UPDATE jobs SET job_name=%s,src_conn_id=%s,tgt_conn_id=%s,src_schema=%s,
          tgt_schema=%s,table_name=%s,watermark_col=%s,retention_days=%s,mode=%s,
          batch_size=%s,batch_delay_ms=%s,schedule_enabled=%s,schedule_time=%s,

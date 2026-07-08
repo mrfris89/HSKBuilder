@@ -76,3 +76,47 @@ def delete_batch_sql_by_id(engine, schema, table, id_col, batch):
 
 def jdbc_type(engine: str) -> str:
     return {"oracle": "ORACLE", "postgresql": "POSTGRESQL", "mysql": "MYSQL"}[engine]
+
+
+# ════════════ LEAST-PRIVILEGE DB USER GENERATION ════════════
+# source role: STRATA hanya perlu baca (SELECT) + hapus setelah verify (DELETE) untuk purge.
+# target role: STRATA hanya perlu baca (SELECT, untuk verify count) + tulis (INSERT) untuk copy.
+# Tidak pernah UPDATE, DROP, ALTER, atau grant di luar schema yang diminta.
+_PRIVS = {"source": ("SELECT", "DELETE"), "target": ("SELECT", "INSERT")}
+
+
+def generate_user_sql(engine: str, role: str, schema: str, username: str, password: str) -> str:
+    """Generate CREATE USER + least-privilege GRANT script. Tidak dieksekusi oleh STRATA —
+    hanya ditampilkan untuk dijalankan manual oleh DBA setelah direview."""
+    privs = _PRIVS[role]
+    priv_list = ", ".join(privs)
+
+    if engine == "mysql":
+        return (
+            f"-- Least privilege untuk role={role}, schema={schema}\n"
+            f"CREATE USER '{username}'@'%' IDENTIFIED BY '{password}';\n"
+            f"GRANT {priv_list} ON `{schema}`.* TO '{username}'@'%';\n"
+            f"FLUSH PRIVILEGES;\n"
+        )
+    if engine == "postgresql":
+        return (
+            f"-- Least privilege untuk role={role}, schema={schema}\n"
+            f"CREATE USER {username} WITH PASSWORD '{password}';\n"
+            f"GRANT CONNECT ON DATABASE current_database() TO {username};\n"
+            f"GRANT USAGE ON SCHEMA {schema} TO {username};\n"
+            f"GRANT {priv_list} ON ALL TABLES IN SCHEMA {schema} TO {username};\n"
+            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT {priv_list} ON TABLES TO {username};\n"
+        )
+    # oracle — grant per-table via dynamic PL/SQL loop atas semua tabel di schema target,
+    # karena Oracle tidak punya "GRANT ... ON ALL TABLES IN SCHEMA" seperti PG.
+    return (
+        f"-- Least privilege untuk role={role}, schema={schema}\n"
+        f'CREATE USER {username} IDENTIFIED BY "{password}";\n'
+        f"GRANT CREATE SESSION TO {username};\n"
+        f"BEGIN\n"
+        f"  FOR t IN (SELECT table_name FROM all_tables WHERE owner = '{schema.upper()}') LOOP\n"
+        f"    EXECUTE IMMEDIATE 'GRANT {priv_list} ON \"{schema.upper()}\".\"' || t.table_name || '\" TO {username}';\n"
+        f"  END LOOP;\n"
+        f"END;\n"
+        f"/\n"
+    )

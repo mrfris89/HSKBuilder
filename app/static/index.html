@@ -287,7 +287,10 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
 <section class="view" id="v-admin">
   <div class="head">
     <div><h1>Admin · Connections</h1><div class="sub">Role wajib. Password encrypted, masked.</div></div>
-    <button class="btn primary" onclick="openConn()">+ Add Connection</button>
+    <div style="display:flex;gap:10px">
+      <button class="btn" onclick="openGenUser()">Generate DB User</button>
+      <button class="btn primary" onclick="openConn()">+ Add Connection</button>
+    </div>
   </div>
   <table class="tbl">
     <thead><tr><th>Name</th><th>Role</th><th>Engine</th><th>Host</th><th>DB</th><th>User</th><th>Status</th><th></th></tr></thead>
@@ -326,8 +329,53 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
     </div>
     <div class="tline" id="cTest">belum ditest</div>
     <div class="mfoot">
+      <button class="btn" onclick="closeConnModal()">Cancel</button>
       <button class="btn" onclick="testConnInModal()">Test</button>
       <button class="btn primary" onclick="saveConn()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- GENERATE DB USER MODAL -->
+<div class="modal" id="genUserModal">
+  <div class="mbox">
+    <h2>Generate DB User (least privilege)</h2>
+    <div class="sub" style="margin-bottom:16px">STRATA tidak menjalankan SQL ini otomatis — hasil hanya digenerate untuk dijalankan manual oleh DBA setelah direview.</div>
+    <div class="r2">
+      <div class="field"><label>Engine</label>
+        <select id="guEng"><option value="oracle">Oracle</option>
+        <option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select></div>
+      <div class="field"><label>Role (menentukan hak akses)</label>
+        <select id="guRole"><option value="source">Source (SELECT, DELETE)</option>
+        <option value="target">Target (SELECT, INSERT)</option></select></div>
+    </div>
+    <div class="r2">
+      <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
+      <div class="field"><label>Username baru</label><input id="guUser" placeholder="strata_src_ro"></div>
+    </div>
+    <div id="guResult" style="display:none">
+      <div class="strip" style="margin:12px 0">! Password hanya ditampilkan sekali di sini — simpan segera, tidak disimpan di STRATA.</div>
+      <div class="field"><label>Password</label><input id="guPass" readonly style="user-select:all"></div>
+      <div class="field"><label>SQL script (review sebelum dijalankan)</label>
+        <pre id="guSql" class="on" style="user-select:all;max-height:260px;overflow:auto"></pre></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn" onclick="closeGenUser()">Cancel</button>
+      <button class="btn primary" onclick="doGenUser()">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- DUPLICATE NAME MODAL -->
+<div class="modal" id="dupModal">
+  <div class="mbox">
+    <h2>Nama job sudah dipakai</h2>
+    <div class="sub" id="dupMsg" style="margin-bottom:16px"></div>
+    <div class="strip i" style="margin-bottom:16px">Replace = timpa job lama (jadi versi baru, wajib re-approve). Add version = simpan sebagai job baru dengan nama bersuffix _v2, dst.</div>
+    <div class="mfoot">
+      <button class="btn" onclick="closeDupModal()">Cancel</button>
+      <button class="btn" onclick="dupAddVersion()">Add version</button>
+      <button class="btn primary" onclick="dupReplace()">Replace existing job</button>
     </div>
   </div>
 </div>
@@ -341,7 +389,14 @@ let currentJobId=null, editJobId=null;
 // ── util ──
 async function api(path,opt){
   const r=await fetch(path,opt);
-  if(!r.ok){const e=await r.json().catch(()=>({detail:r.statusText}));throw new Error(e.detail||'error')}
+  if(!r.ok){
+    const e=await r.json().catch(()=>({detail:r.statusText}));
+    const d=e.detail;
+    const msg=(d&&typeof d==='object')?(d.message||'error'):(d||'error');
+    const err=new Error(msg);
+    if(d&&typeof d==='object')err.detail=d;
+    throw err;
+  }
   return r.json();
 }
 function toast(msg,err){const t=$('toast');t.textContent=msg;t.className='toast on'+(err?' err':'');
@@ -373,7 +428,8 @@ async function loadJobs(){
         <td style="display:flex;gap:6px">
           <button class="btn sm" onclick="event.stopPropagation();editJob(${j.id})">Edit</button>
           <button class="btn sm dl" ${j.approval_status!=='approved'?'disabled':''}
-             onclick="event.stopPropagation();window.location='/api/jobs/${j.id}/download'">↓ KJB/KTR</button></td>
+             onclick="event.stopPropagation();window.location='/api/jobs/${j.id}/download'">↓ KJB/KTR</button>
+          <button class="btn sm danger" onclick="event.stopPropagation();delJob(${j.id},'${esc(j.job_name).replace(/'/g,"\\'")}')">Delete</button></td>
       </tr>`).join('') : '<tr><td colspan="6" class="jp">Belum ada job. Klik + New Job.</td></tr>';
     $('repoDot').style.background='var(--green)';
   }catch(e){$('jobRows').innerHTML=`<tr><td colspan="6" class="jp" style="color:var(--red)">Repo error: ${esc(e.message)} — cek koneksi MySQL & schema.sql</td></tr>`;
@@ -465,7 +521,31 @@ async function saveJob(){
       <pre id="wp${i}" class="on" style="user-select:all">${esc(f.file_content)}</pre>`).join('');
     $('saveBtn').textContent='✓ Approved';$('saveBtn').disabled=true;
     $('wCk').style.display='none';
-  }catch(e){toast(e.message,1)}
+  }catch(e){
+    if(e.detail&&e.detail.error==='duplicate_name'){openDupModal(e.detail.existing_job_id,body.job_name);return}
+    toast(e.message,1)
+  }
+}
+
+// ── DUPLICATE NAME PROMPT ──
+let dupExistingId=null;
+function openDupModal(existingId,name){
+  dupExistingId=existingId;
+  $('dupMsg').textContent=`Job name "${name}" sudah dipakai.`;
+  $('dupModal').classList.add('on');
+}
+function closeDupModal(){$('dupModal').classList.remove('on');dupExistingId=null}
+function dupReplace(){
+  editJobId=dupExistingId;
+  closeDupModal();
+  saveJob();
+}
+function dupAddVersion(){
+  const base=$('wName').value.trim();
+  const m=base.match(/^(.*)_v(\d+)$/);
+  $('wName').value=m?`${m[1]}_v${(+m[2])+1}`:`${base}_v2`;
+  closeDupModal();
+  saveJob();
 }
 
 // ── DETAIL ──
@@ -506,9 +586,10 @@ async function approveVer(){
     toast('Approved v'+$('dVer').value);openDetail(currentJobId)}catch(e){toast(e.message,1)}
 }
 function dlJob(){window.location=`/api/jobs/${currentJobId}/download`}
-async function delJob(){
-  if(!confirm('Hapus job ini? File & versi ikut terhapus.'))return;
-  try{await api('/api/jobs/'+currentJobId,{method:'DELETE'});toast('Job dihapus');go('config');loadJobs()}
+async function delJob(id,name){
+  const jid=id||currentJobId;
+  if(!confirm(`Hapus job${name?' "'+name+'"':' ini'}? File & versi ikut terhapus. Tindakan ini tidak bisa dibatalkan.`))return;
+  try{await api('/api/jobs/'+jid,{method:'DELETE'});toast('Job dihapus');go('config');loadJobs()}
   catch(e){toast(e.message,1)}
 }
 
@@ -620,6 +701,7 @@ async function testConnInModal(){
 }
 
 function sugName(){$('cSug').textContent=abbr[$('cEng').value]+'_'+($('cDb').value||'DB')}
+function closeConnModal(){$('cModal').classList.remove('on');editConnId=null}
 async function saveConn(){
   const body={name:$('cNm').value.trim(),role:cRoleVal,engine:$('cEng').value,
     host:$('cHost').value.trim(),port:+$('cPort').value,database_name:$('cDb').value.trim(),
@@ -662,6 +744,26 @@ async function testC(id,btn){btn.textContent='…';
   btn.textContent='Test';toast(r.ok?'✓ connected':'✗ '+r.message,!r.ok);loadConns()}
 async function delC(id){if(!confirm('Hapus connection?'))return;
   try{await api('/api/connections/'+id,{method:'DELETE'});loadConns()}catch(e){toast(e.message,1)}}
+
+// ── GENERATE DB USER (least privilege) ──
+function openGenUser(){
+  $('guSchema').value='';$('guUser').value='';$('guEng').value='oracle';$('guRole').value='source';
+  $('guResult').style.display='none';
+  $('genUserModal').classList.add('on');
+}
+function closeGenUser(){$('genUserModal').classList.remove('on')}
+async function doGenUser(){
+  const body={engine:$('guEng').value,role:$('guRole').value,
+    schema_name:$('guSchema').value.trim(),username:$('guUser').value.trim()};
+  if(!body.schema_name||!body.username){toast('Lengkapi schema & username',1);return}
+  try{
+    const r=await api('/api/connections/generate-user-sql',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    $('guPass').value=r.password;$('guSql').textContent=r.sql;
+    $('guResult').style.display='block';
+    toast('SQL digenerate — review & jalankan manual sebagai DBA');
+  }catch(e){toast(e.message,1)}
+}
 
 // init
 loadJobs();
