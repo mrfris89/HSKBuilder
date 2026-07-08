@@ -175,12 +175,14 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
           <select id="wTgt" onchange="onWTgtChange()"></select></div>
       </div>
       <div class="r2">
-        <div class="field" id="wSDbField"><label>Source database</label><input id="wSDb" oninput="genName()"></div>
-        <div class="field" id="wTDbField"><label>Target database</label><input id="wTDb"></div>
-      </div>
-      <div class="r2">
-        <div class="field" id="wSsField"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
-        <div class="field" id="wTsField"><label>Target schema</label><input id="wTs" value=""></div>
+        <div>
+          <div class="field" id="wSDbField"><label>Source database</label><input id="wSDb" oninput="genName()"></div>
+          <div class="field" id="wSsField"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
+        </div>
+        <div>
+          <div class="field" id="wTDbField"><label>Target database</label><input id="wTDb"></div>
+          <div class="field" id="wTsField"><label>Target schema</label><input id="wTs" value=""></div>
+        </div>
       </div>
       <div class="strip i" id="wIdentHint">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name.</div>
     </div>
@@ -221,7 +223,7 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
     <div class="sb" data-b="4">
       <div class="field"><label>Job name (auto — editable, tolak duplikat)</label>
         <input id="wName">
-        <div class="hint" id="nameHint">format: rdbms_schema_table_retensi</div></div>
+        <div class="hint" id="nameHint">format: rdbms_database_table_retensi</div></div>
       <div id="filePreview"></div>
       <div class="appr">
         <div class="ck" id="wCk" onclick="this.classList.toggle('on');saveBtn.disabled=!this.classList.contains('on')"></div>
@@ -447,16 +449,10 @@ async function openWizard(){
   setWmType('date');
   step=0;renderStep();go('wizard');onWSrcChange();onWTgtChange();
 }
-// Identifier model beda per engine:
-//  - postgresql: database + schema + table semuanya spesifik. Database boleh diedit manual
-//    (default terisi dari connection, tapi user bisa override — 1 connection bisa dipakai
-//    untuk lebih dari 1 database di server Postgres yang sama).
-//  - mysql: database == schema (satu konsep) → field schema disembunyikan, tidak dipakai.
+// Identifier model beda per engine — field yg tidak relevan disembunyikan (bukan dijelaskan):
+//  - postgresql: database + schema + table semuanya spesifik & terpisah.
+//  - mysql: database == schema (satu konsep) → field schema disembunyikan.
 //  - oracle: hanya schema (owner) yang jadi identifier → field database disembunyikan.
-const ENGINE_IDENT_HINT={
-  postgresql:'PostgreSQL: database, schema, dan table masing-masing spesifik. Database bisa diedit manual bila berbeda dari default connection.',
-  mysql:'MySQL: database = schema (satu konsep) — field schema disembunyikan.',
-  oracle:'Oracle: hanya schema (owner) yang jadi identifier — tidak ada "database" terpisah dari connection.'};
 function applyEngineFields(which,eng){
   const dbField=$(which==='src'?'wSDbField':'wTDbField');
   const schField=$(which==='src'?'wSsField':'wTsField');
@@ -470,7 +466,6 @@ function applyEngineFields(which,eng){
     dbField.style.display='';
     schField.style.display='';
   }
-  $('wIdentHint').textContent=ENGINE_IDENT_HINT[eng]||ENGINE_IDENT_HINT.postgresql;
 }
 function onWSrcChange(){
   const opt=$('wSrc').selectedOptions[0];
@@ -522,10 +517,12 @@ function effSchema(which){
 }
 function genName(){
   const opt=$('wSrc').selectedOptions[0];
-  const eng=opt?abbr[opt.dataset.eng]:'ora';
+  const rawEng=opt?opt.dataset.eng:'';
+  const eng=abbr[rawEng]||'ora';
   const sc=(effSchema('src')||'schema').toLowerCase().replace(/[^a-z0-9]/g,'');
   const tb=($('wTb').value||'table').toLowerCase().replace(/[^a-z0-9_]/g,'');
   $('wName').value=`${eng}_${sc}_${tb}_${$('wRet').value||0}d`;
+  if($('nameHint'))$('nameHint').textContent=`format: rdbms_${rawEng==='mysql'?'database':'schema'}_table_retensi`;
 }
 function previewFiles(){
   $('filePreview').innerHTML=`
@@ -838,16 +835,14 @@ function updateGuConnHint(){
   if(eng==='oracle'){
     $('guDbField').style.display='none';
     $('guSchemaField').style.display='';
-    $('guConnHint').textContent=`Oracle: hanya schema (owner) yang dipakai. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (schema.table).`;
   }else if(eng==='mysql'){
     $('guDbField').style.display='';
     $('guSchemaField').style.display='none';
-    $('guConnHint').textContent=`MySQL: database = schema. User "${opt.dataset.user}" akan diberi hak ${privs} pada database.table di atas (schema tidak dipakai).`;
   }else{
     $('guDbField').style.display='';
     $('guSchemaField').style.display='';
-    $('guConnHint').textContent=`PostgreSQL: database, schema, table masing-masing spesifik. Database bisa diedit manual bila berbeda dari default connection. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (database.schema.table).`;
   }
+  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table saja (bukan seluruh schema).`;
 }
 function closeGenUser(){$('genUserModal').classList.remove('on')}
 async function doGenUser(){
