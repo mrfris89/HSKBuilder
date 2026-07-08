@@ -3,9 +3,17 @@
 Struktur pipeline: CUTOFF -> COPY -> VERIFY (hard gate) -> PURGE/KEEP.
 VERIFY gate dikodekan sebagai evaluasi kondisi di KJB:
 PURGE hanya jalan bila hop 'sukses' dari VERIFY.
+
+ID-based watermarking: Jika watermark_col == 'ID', cek max ID di target dulu,
+lalu transfer data dari max_id+1 ke terakhir.
 """
 from xml.sax.saxutils import escape
 from . import dialects as D
+
+
+def _is_id_watermark(watermark_col: str) -> bool:
+    """Check if watermark column is ID (case-insensitive)."""
+    return watermark_col.upper() == "ID"
 
 
 def _conn_block(name, engine, host, port, dbname, user):
@@ -28,15 +36,24 @@ def _conn_block(name, engine, host, port, dbname, user):
 def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
     """KTR = transformation: READ_SOURCE -> WRITE_TARGET."""
     eng_s = src["engine"]
-    sel = D.select_batch_sql(eng_s, job["src_schema"], job["table_name"],
-                             job["watermark_col"], job["retention_days"],
-                             job["batch_size"])
+    
+    if _is_id_watermark(job["watermark_col"]):
+        sel = D.select_batch_sql_by_id(eng_s, job["src_schema"], job["table_name"],
+                                       job["watermark_col"], job["batch_size"])
+        wm_desc = f"ID watermark"
+    else:
+        sel = D.select_batch_sql(eng_s, job["src_schema"], job["table_name"],
+                                 job["watermark_col"], job["retention_days"],
+                                 job["batch_size"])
+        wm_desc = f"retensi {job['retention_days']}d"
+    
     name = job["job_name"]
+    
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <transformation>
   <info>
     <name>{escape(name)}</name>
-    <description>STRATA housekeeping COPY: {escape(job['src_schema'])}.{escape(job['table_name'])} -&gt; {escape(job['tgt_schema'])}.{escape(job['table_name'])} | retensi {job['retention_days']}d | batch {job['batch_size']}</description>
+    <description>STRATA housekeeping COPY: {escape(job['src_schema'])}.{escape(job['table_name'])} -&gt; {escape(job['tgt_schema'])}.{escape(job['table_name'])} | {wm_desc} | batch {job['batch_size']}</description>
     <trans_version/>
     <trans_type>Normal</trans_type>
   </info>
@@ -79,25 +96,46 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
 
 
 def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
-    """KJB = orchestrator 4 fase dengan VERIFY hard gate.
+    """KJB = orchestrator 4-5 fase dengan VERIFY hard gate.
 
-    Alur hop:
-      START -> INIT_SUMMARY -> RUN_KTR -> VERIFY_COUNT
+    Date-based flow:
+      START -> INIT_SUMMARY -> RUN_KTR -> GET_SRC_COUNT -> GET_TGT_COUNT -> VERIFY_COUNT
+      VERIFY sukses -> PURGE/KEEP -> FINALIZE_OK
+      VERIFY gagal  -> MARK_MISMATCH (ABORT)
+    
+    ID-based flow:
+      START -> INIT_SUMMARY -> GET_MAX_ID -> RUN_KTR -> GET_SRC_COUNT -> GET_TGT_COUNT -> VERIFY_COUNT
       VERIFY sukses -> PURGE/KEEP -> FINALIZE_OK
       VERIFY gagal  -> MARK_MISMATCH (ABORT)
     """
     eng_s = src["engine"]
     j = job
-    cnt_src = D.count_sql(eng_s, j["src_schema"], j["table_name"],
-                          j["watermark_col"], j["retention_days"])
-    cnt_tgt = D.count_sql(tgt["engine"], j["tgt_schema"], j["table_name"],
-                          j["watermark_col"], j["retention_days"])
-    cutoff_mysql = D.cutoff_expr("mysql", j["retention_days"])
+    is_id_wm = _is_id_watermark(j["watermark_col"])
+    
+    # Determine SQL queries based on watermark type
+    if is_id_wm:
+        cnt_src = D.count_sql_by_id(eng_s, j["src_schema"], j["table_name"],
+                                    j["watermark_col"])
+        cnt_tgt = D.count_sql_by_id(tgt["engine"], j["tgt_schema"], j["table_name"],
+                                    j["watermark_col"])
+        get_max_id_sql = D.get_max_id_sql(tgt["engine"], j["tgt_schema"], j["table_name"],
+                                          j["watermark_col"])
+        init_cutoff = "NOW()"  # Use timestamp for logging instead of cutoff
+    else:
+        cnt_src = D.count_sql(eng_s, j["src_schema"], j["table_name"],
+                              j["watermark_col"], j["retention_days"])
+        cnt_tgt = D.count_sql(tgt["engine"], j["tgt_schema"], j["table_name"],
+                              j["watermark_col"], j["retention_days"])
+        init_cutoff = D.cutoff_expr("mysql", j["retention_days"])
 
     if j["mode"] == "delete":
-        purge_sql = D.delete_batch_sql(eng_s, j["src_schema"], j["table_name"],
-                                       j["watermark_col"], j["retention_days"],
-                                       j["batch_size"])
+        if is_id_wm:
+            purge_sql = D.delete_batch_sql_by_id(eng_s, j["src_schema"], j["table_name"],
+                                                 j["watermark_col"], j["batch_size"])
+        else:
+            purge_sql = D.delete_batch_sql(eng_s, j["src_schema"], j["table_name"],
+                                           j["watermark_col"], j["retention_days"],
+                                           j["batch_size"])
         purge_entry = f"""    <entry>
       <name>PURGE_SOURCE</name>
       <type>SQL</type>
@@ -110,7 +148,7 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
         last_phase = "PURGE_SOURCE"
     else:
         keep_sql = (f"INSERT INTO archived_keys (job_id, run_id, range_cutoff) "
-                    f"VALUES ({j['id']}, '${{RUN_ID}}', {cutoff_mysql})")
+                    f"VALUES ({j['id']}, '${{RUN_ID}}', {init_cutoff})")
         purge_entry = f"""    <entry>
       <name>KEEP_LOG</name>
       <type>SQL</type>
@@ -125,8 +163,32 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
     init_sql = (
         f"SET @run_id = CONCAT('HK-', UNIX_TIMESTAMP()); "
         f"INSERT INTO task_summary (run_id, job_id, job_name, table_name, cutoff_time, mode, final_status, started_at) "
-        f"VALUES (@run_id, {j['id']}, '{j['job_name']}', '{j['table_name']}', {cutoff_mysql}, '{j['mode']}', 'RUNNING', NOW());"
+        f"VALUES (@run_id, {j['id']}, '{j['job_name']}', '{j['table_name']}', {init_cutoff}, '{j['mode']}', 'RUNNING', NOW());"
     )
+    
+    # For ID watermark, add GET_MAX_ID entry
+    get_max_id_entry = ""
+    init_summary_to_next = "RUN_KTR"
+    
+    if is_id_wm:
+        get_max_id_entry = f"""    <entry>
+      <name>GET_MAX_ID</name>
+      <type>EVAL_TABLE_CONTENT</type>
+      <connection>{escape(tgt['name'])}</connection>
+      <sql>{escape(get_max_id_sql)}</sql>
+      <success_condition>rows_count_greater_equal</success_condition>
+      <limit>0</limit>
+      <xloc>280</xloc>
+      <yloc>200</yloc>
+      <draw>Y</draw>
+    </entry>
+"""
+        init_summary_to_next = "GET_MAX_ID"
+        max_id_hop = ('    <hop><from>GET_MAX_ID</from><to>RUN_KTR</to>'
+                      '<enabled>Y</enabled><evaluation>Y</evaluation><unconditional>N</unconditional></hop>\n')
+    else:
+        max_id_hop = ""
+    
     fin_ok = (f"UPDATE task_summary SET final_status='OK', finished_at=NOW(), "
               f"duration_sec=TIMESTAMPDIFF(SECOND, started_at, NOW()) "
               f"WHERE job_id={j['id']} AND final_status='RUNNING';")
@@ -140,6 +202,8 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
 src_c = parseInt(parent_job.getVariable("SRC_COUNT","-1"));
 tgt_c = parseInt(parent_job.getVariable("TGT_COUNT","-2"));
 result = (src_c == tgt_c);"""
+
+    wm_type = "ID" if is_id_wm else f"retensi {j['retention_days']}d"
 
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <job>
@@ -204,7 +268,7 @@ result = (src_c == tgt_c);"""
       <yloc>200</yloc>
       <draw>Y</draw>
     </entry>
-{purge_entry}
+{get_max_id_entry}{purge_entry}
     <entry>
       <name>FINALIZE_OK</name>
       <type>SQL</type>
@@ -234,8 +298,8 @@ result = (src_c == tgt_c);"""
   </entries>
   <hops>
     <hop><from>START</from><to>INIT_SUMMARY</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>Y</unconditional></hop>
-    <hop><from>INIT_SUMMARY</from><to>RUN_KTR</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>N</unconditional></hop>
-    <hop><from>RUN_KTR</from><to>GET_SRC_COUNT</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>N</unconditional></hop>
+    <hop><from>INIT_SUMMARY</from><to>{init_summary_to_next}</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>N</unconditional></hop>
+{max_id_hop}    <hop><from>RUN_KTR</from><to>GET_SRC_COUNT</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>N</unconditional></hop>
     <hop><from>GET_SRC_COUNT</from><to>GET_TGT_COUNT</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>Y</unconditional></hop>
     <hop><from>GET_TGT_COUNT</from><to>VERIFY_COUNT</to><enabled>Y</enabled><evaluation>Y</evaluation><unconditional>Y</unconditional></hop>
     <!-- HARD GATE: sukses -> purge/keep, gagal -> mismatch+abort -->

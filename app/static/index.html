@@ -182,12 +182,17 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
     </div>
     <div class="sb" data-b="1">
       <div class="field"><label>Table name</label><input id="wTb" oninput="genName()"></div>
+      <div class="field"><label>Watermark type</label>
+        <div class="seg" style="max-width:360px" id="wmTypeSeg">
+          <button class="on" data-wt="date">Date / Timestamp</button>
+          <button data-wt="id">ID (sequential)</button>
+        </div></div>
       <div class="r2">
-        <div class="field"><label>Watermark column (DATE/TIMESTAMP)</label><input id="wWm" placeholder="trx_date"></div>
-        <div class="field"><label>Retensi (hari)</label><input id="wRet" type="number" value="90" oninput="genName()">
+        <div class="field"><label id="wWmLabel">Watermark column (DATE/TIMESTAMP)</label><input id="wWm" placeholder="trx_date"></div>
+        <div class="field" id="wRetField"><label>Retensi (hari)</label><input id="wRet" type="number" value="90" oninput="genName()">
           <div class="hint">Cutoff dikunci 00:00 hari-H saat run di Pentaho.</div></div>
       </div>
-      <div class="strip">! Range-only. DELETE pakai WHERE watermark &lt; cutoff setelah VERIFY count cocok. Duplikat identik tak terbedakan.</div>
+      <div class="strip" id="wmHint">! Range-only. DELETE pakai WHERE watermark &lt; cutoff setelah VERIFY count cocok. Duplikat identik tak terbedakan.</div>
     </div>
     <div class="sb" data-b="2">
       <div class="field"><label>Mode retensi source</label>
@@ -384,6 +389,8 @@ async function openWizard(){
   if(!srcs.length||!tgts.length){toast('Buat connection source & target dulu di Admin',1);go('admin');loadConns();return}
   $('wSrc').innerHTML=srcs.map(c=>`<option value="${c.id}" data-eng="${c.engine}">${esc(c.name)} · ${c.engine}</option>`).join('');
   $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}">${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wTb').value='';$('wWm').value='';$('wRet').value=90;
+  setWmType('date');
   step=0;renderStep();go('wizard');genName();
 }
 function renderStep(){
@@ -399,6 +406,20 @@ function mv(d){step=Math.max(0,Math.min(4,step+d));renderStep()}
 document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#modeSeg button').forEach(x=>x.classList.remove('on','red'));
   b.classList.add('on');if(b.dataset.m==='delete')b.classList.add('red');mode=b.dataset.m});
+function setWmType(wt){
+  document.querySelectorAll('#wmTypeSeg button').forEach(x=>x.classList.toggle('on',x.dataset.wt===wt));
+  if(wt==='id'){
+    $('wWm').value='ID';$('wWmLabel').textContent='Watermark column (ID)';
+    $('wRetField').style.display='none';
+    $('wmHint').textContent='! ID watermark: cek MAX(ID) di target dulu, lalu transfer lanjut dari ID tersebut sampai ID terakhir di source.';
+  }else{
+    if($('wWm').value.trim().toUpperCase()==='ID')$('wWm').value='';
+    $('wWmLabel').textContent='Watermark column (DATE/TIMESTAMP)';
+    $('wRetField').style.display='';
+    $('wmHint').textContent='! Range-only. DELETE pakai WHERE watermark < cutoff setelah VERIFY count cocok. Duplikat identik tak terbedakan.';
+  }
+}
+document.querySelectorAll('#wmTypeSeg button').forEach(b=>b.onclick=()=>setWmType(b.dataset.wt));
 const abbr={oracle:'ora',postgresql:'pgs',mysql:'msq'};
 function genName(){
   const opt=$('wSrc').selectedOptions[0];
@@ -625,6 +646,7 @@ async function editJob(id){
   $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" ${c.id===j.tgt_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
   $('wSs').value=j.src_schema;$('wTs').value=j.tgt_schema;
   $('wTb').value=j.table_name;$('wWm').value=j.watermark_col;
+  setWmType(j.watermark_col.trim().toUpperCase()==='ID'?'id':'date');
   $('wRet').value=j.retention_days;$('wBs').value=j.batch_size;$('wBd').value=j.batch_delay_ms;
   $('wSch').checked=!!j.schedule_enabled;$('wSt').value=j.schedule_time||'02:00';
   $('wName').value=j.job_name;
