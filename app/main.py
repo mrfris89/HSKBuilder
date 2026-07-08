@@ -1,8 +1,6 @@
 """STRATA — Housekeeping Job Generator & Monitor. Port 5200."""
 import io
 import re
-import secrets
-import string
 import zipfile
 from datetime import date, timedelta
 from fastapi import FastAPI, HTTPException
@@ -29,10 +27,8 @@ class ConnIn(BaseModel):
 
 
 class GenUserIn(BaseModel):
-    engine: str           # oracle | postgresql | mysql
-    role: str             # source | target
+    conn_id: int
     schema_name: str
-    username: str
 
 
 class JobIn(BaseModel):
@@ -131,27 +127,19 @@ def test_conn(cid: int):
 _IDENT_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
 
-def _gen_password(length: int = 24) -> str:
-    """Random password, hindari karakter yang bisa merusak literal SQL ('/\"/\\)."""
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*_+-="
-    return "".join(secrets.choice(alphabet) for _ in range(length))
-
-
 @app.post("/api/connections/generate-user-sql")
 def generate_user_sql(g: GenUserIn):
-    """Generate CREATE USER + least-privilege GRANT script (SELECT+DELETE utk source,
-    SELECT+INSERT utk target). STRATA tidak eksekusi ini — DBA jalankan manual setelah review."""
-    if g.engine not in ("oracle", "postgresql", "mysql"):
-        raise HTTPException(400, "engine tidak valid")
-    if g.role not in ("source", "target"):
-        raise HTTPException(400, "role harus source/target")
+    """Generate least-privilege GRANT script (SELECT+DELETE utk source, SELECT+INSERT
+    utk target) untuk user yang SUDAH ADA di connection (dibuat manual di Admin).
+    STRATA tidak membuat user baru & tidak eksekusi SQL ini — DBA jalankan manual setelah review."""
+    rows = q("SELECT * FROM connections WHERE id=%s", (g.conn_id,))
+    if not rows:
+        raise HTTPException(404, "connection tidak ditemukan")
+    c = rows[0]
     if not _IDENT_RE.match(g.schema_name):
         raise HTTPException(400, "schema_name tidak valid — huruf/angka/underscore saja")
-    if not _IDENT_RE.match(g.username):
-        raise HTTPException(400, "username tidak valid — huruf/angka/underscore saja")
-    password = _gen_password()
-    sql = dialects.generate_user_sql(g.engine, g.role, g.schema_name, g.username, password)
-    return {"username": g.username, "password": password, "sql": sql}
+    sql = dialects.generate_user_sql(c["engine"], c["role"], g.schema_name, c["username"])
+    return {"username": c["username"], "sql": sql}
 
 
 # ══════════════ FASE 3-5: JOBS + GENERATOR + APPROVAL ══════════════

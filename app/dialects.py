@@ -85,23 +85,24 @@ def jdbc_type(engine: str) -> str:
 _PRIVS = {"source": ("SELECT", "DELETE"), "target": ("SELECT", "INSERT")}
 
 
-def generate_user_sql(engine: str, role: str, schema: str, username: str, password: str) -> str:
-    """Generate CREATE USER + least-privilege GRANT script. Tidak dieksekusi oleh STRATA —
-    hanya ditampilkan untuk dijalankan manual oleh DBA setelah direview."""
+def generate_user_sql(engine: str, role: str, schema: str, username: str) -> str:
+    """Generate least-privilege GRANT script untuk USER YANG SUDAH ADA (dibuat manual di
+    Admin > Connections, bukan dibuat oleh STRATA). Tidak dieksekusi oleh STRATA — hanya
+    ditampilkan untuk dijalankan manual oleh DBA setelah direview."""
     privs = _PRIVS[role]
     priv_list = ", ".join(privs)
 
     if engine == "mysql":
         return (
             f"-- Least privilege untuk role={role}, schema={schema}\n"
-            f"CREATE USER '{username}'@'%' IDENTIFIED BY '{password}';\n"
+            f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
             f"GRANT {priv_list} ON `{schema}`.* TO '{username}'@'%';\n"
             f"FLUSH PRIVILEGES;\n"
         )
     if engine == "postgresql":
         return (
             f"-- Least privilege untuk role={role}, schema={schema}\n"
-            f"CREATE USER {username} WITH PASSWORD '{password}';\n"
+            f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
             f"GRANT CONNECT ON DATABASE current_database() TO {username};\n"
             f"GRANT USAGE ON SCHEMA {schema} TO {username};\n"
             f"GRANT {priv_list} ON ALL TABLES IN SCHEMA {schema} TO {username};\n"
@@ -111,7 +112,7 @@ def generate_user_sql(engine: str, role: str, schema: str, username: str, passwo
     # karena Oracle tidak punya "GRANT ... ON ALL TABLES IN SCHEMA" seperti PG.
     return (
         f"-- Least privilege untuk role={role}, schema={schema}\n"
-        f'CREATE USER {username} IDENTIFIED BY "{password}";\n'
+        f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
         f"GRANT CREATE SESSION TO {username};\n"
         f"BEGIN\n"
         f"  FOR t IN (SELECT table_name FROM all_tables WHERE owner = '{schema.upper()}') LOOP\n"

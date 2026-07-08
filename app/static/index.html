@@ -339,23 +339,13 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
 <!-- GENERATE DB USER MODAL -->
 <div class="modal" id="genUserModal">
   <div class="mbox">
-    <h2>Generate DB User (least privilege)</h2>
-    <div class="sub" style="margin-bottom:16px">STRATA tidak menjalankan SQL ini otomatis — hasil hanya digenerate untuk dijalankan manual oleh DBA setelah direview.</div>
-    <div class="r2">
-      <div class="field"><label>Engine</label>
-        <select id="guEng"><option value="oracle">Oracle</option>
-        <option value="postgresql">PostgreSQL</option><option value="mysql">MySQL</option></select></div>
-      <div class="field"><label>Role (menentukan hak akses)</label>
-        <select id="guRole"><option value="source">Source (SELECT, DELETE)</option>
-        <option value="target">Target (SELECT, INSERT)</option></select></div>
-    </div>
-    <div class="r2">
-      <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
-      <div class="field"><label>Username baru</label><input id="guUser" placeholder="strata_src_ro"></div>
-    </div>
+    <h2>Generate GRANT script (least privilege)</h2>
+    <div class="sub" style="margin-bottom:16px">User diambil dari connection yang sudah tersimpan — STRATA tidak membuat user baru. Hasil hanya SQL GRANT untuk dijalankan manual oleh DBA setelah direview.</div>
+    <div class="field"><label>Connection</label>
+      <select id="guConn"></select>
+      <div class="hint" id="guConnHint"></div></div>
+    <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
     <div id="guResult" style="display:none">
-      <div class="strip" style="margin:12px 0">! Password hanya ditampilkan sekali di sini — simpan segera, tidak disimpan di STRATA.</div>
-      <div class="field"><label>Password</label><input id="guPass" readonly style="user-select:all"></div>
       <div class="field"><label>SQL script (review sebelum dijalankan)</label>
         <pre id="guSql" class="on" style="user-select:all;max-height:260px;overflow:auto"></pre></div>
     </div>
@@ -528,35 +518,27 @@ async function saveJob(){
   }
 }
 
-// ── least-privilege DB user SQL, shown alongside KJB/KTR after save ──
-function _sanitizeIdent(s){
-  s=String(s||'').replace(/[^A-Za-z0-9_]/g,'_');
-  if(!/^[A-Za-z]/.test(s))s='u_'+s;
-  return s.slice(0,64);
-}
+// ── least-privilege GRANT SQL untuk user connection yang sudah ada, shown alongside KJB/KTR ──
 async function appendUserSql(body){
-  const srcOpt=$('wSrc').selectedOptions[0], tgtOpt=$('wTgt').selectedOptions[0];
   const reqs=[
-    {role:'source',engine:srcOpt?.dataset.eng,schema:body.src_schema,
-     username:_sanitizeIdent(`strata_${body.job_name}_src`)},
-    {role:'target',engine:tgtOpt?.dataset.eng,schema:body.tgt_schema,
-     username:_sanitizeIdent(`strata_${body.job_name}_tgt`)},
+    {role:'source',connId:body.src_conn_id,schema:body.src_schema},
+    {role:'target',connId:body.tgt_conn_id,schema:body.tgt_schema},
   ];
-  let html=`<div class="strip i" style="margin:16px 0 12px">Script CREATE USER least-privilege (belum dijalankan) — review lalu jalankan manual sebagai DBA. Password hanya ditampilkan sekali di sini, tidak disimpan STRATA.</div>`;
+  let html=`<div class="strip i" style="margin:16px 0 12px">Script GRANT least-privilege untuk user connection yang sudah ada (STRATA tidak membuat user baru) — review lalu jalankan manual sebagai DBA.</div>`;
   for(const r of reqs){
-    if(!r.engine||!r.schema)continue;
+    if(!r.connId||!r.schema)continue;
     try{
       const g=await api('/api/connections/generate-user-sql',{method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({engine:r.engine,role:r.role,schema_name:r.schema,username:r.username})});
+        body:JSON.stringify({conn_id:r.connId,schema_name:r.schema})});
       html+=`<div class="fpill" onclick="$('gu${r.role}').classList.toggle('on')">
         <div class="fi ${r.role==='source'?'kjb':'ktr'}">SQL</div>
         <div class="ft"><b>${esc(g.username)}</b> · role ${r.role}
-        <small>password: <span class="mono" style="user-select:all">${esc(g.password)}</span> · klik untuk expand SQL</small></div>
+        <small>GRANT SQL untuk user existing · klik untuk expand</small></div>
         <span class="jp">›</span></div>
       <pre id="gu${r.role}" class="on" style="user-select:all">${esc(g.sql)}</pre>`;
     }catch(e){
-      html+=`<div class="strip" style="margin-bottom:10px">Gagal generate user untuk role ${r.role}: ${esc(e.message)}</div>`;
+      html+=`<div class="strip" style="margin-bottom:10px">Gagal generate GRANT untuk role ${r.role}: ${esc(e.message)}</div>`;
     }
   }
   $('filePreview').insertAdjacentHTML('beforeend',html);
@@ -780,25 +762,36 @@ async function testC(id,btn){btn.textContent='…';
 async function delC(id){if(!confirm('Hapus connection?'))return;
   try{await api('/api/connections/'+id,{method:'DELETE'});loadConns()}catch(e){toast(e.message,1)}}
 
-// ── GENERATE DB USER (least privilege) ──
-function openGenUser(){
-  $('guSchema').value='';$('guUser').value='';$('guEng').value='oracle';$('guRole').value='source';
+// ── GENERATE GRANT SQL utk user existing (least privilege) ──
+async function openGenUser(){
+  const cs=await api('/api/connections');
+  if(!cs.length){toast('Belum ada connection — tambah dulu di Admin',1);return}
+  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
+  $('guSchema').value='';
   $('guResult').style.display='none';
+  updateGuConnHint();
   $('genUserModal').classList.add('on');
+}
+function updateGuConnHint(){
+  const opt=$('guConn').selectedOptions[0];
+  if(!opt){$('guConnHint').textContent='';return}
+  const privs=opt.dataset.role==='source'?'SELECT, DELETE':'SELECT, INSERT';
+  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada schema di bawah.`;
 }
 function closeGenUser(){$('genUserModal').classList.remove('on')}
 async function doGenUser(){
-  const body={engine:$('guEng').value,role:$('guRole').value,
-    schema_name:$('guSchema').value.trim(),username:$('guUser').value.trim()};
-  if(!body.schema_name||!body.username){toast('Lengkapi schema & username',1);return}
+  const connId=+$('guConn').value;
+  const schema=$('guSchema').value.trim();
+  if(!connId||!schema){toast('Pilih connection & isi schema',1);return}
   try{
     const r=await api('/api/connections/generate-user-sql',{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
-    $('guPass').value=r.password;$('guSql').textContent=r.sql;
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({conn_id:connId,schema_name:schema})});
+    $('guSql').textContent=r.sql;
     $('guResult').style.display='block';
     toast('SQL digenerate — review & jalankan manual sebagai DBA');
   }catch(e){toast(e.message,1)}
 }
+document.addEventListener('change',e=>{if(e.target&&e.target.id==='guConn')updateGuConnHint()});
 
 // init
 loadJobs();
