@@ -175,14 +175,14 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
           <select id="wTgt" onchange="onWTgtChange()"></select></div>
       </div>
       <div class="r2">
-        <div class="field" id="wSDbField"><label>Source database</label><input id="wSDb" readonly disabled></div>
-        <div class="field" id="wTDbField"><label>Target database</label><input id="wTDb" readonly disabled></div>
+        <div class="field"><label>Source database</label><input id="wSDb" readonly disabled></div>
+        <div class="field"><label>Target database</label><input id="wTDb" readonly disabled></div>
       </div>
       <div class="r2">
-        <div class="field" id="wSsField"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
-        <div class="field" id="wTsField"><label>Target schema</label><input id="wTs" value=""></div>
+        <div class="field"><label>Source schema</label><input id="wSs" value="" oninput="genName()"></div>
+        <div class="field"><label>Target schema</label><input id="wTs" value=""></div>
       </div>
-      <div class="strip i" id="wIdentHint">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name.</div>
+      <div class="strip i">Struktur tabel source & target diasumsikan identik. Kolom auto-match by name. Database diambil dari connection (Admin), schema wajib diisi manual — penting terutama untuk PostgreSQL karena GRANT dibatasi per database.schema.table.</div>
     </div>
     <div class="sb" data-b="1">
       <div class="field"><label>Table name</label><input id="wTb" oninput="genName()"></div>
@@ -349,8 +349,8 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
       <select id="guConn"></select>
       <div class="hint" id="guConnHint"></div></div>
     <div class="r2">
-      <div class="field" id="guDbField"><label>Database</label><input id="guDb" readonly disabled></div>
-      <div class="field" id="guSchemaField"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
+      <div class="field"><label>Database</label><input id="guDb" readonly disabled></div>
+      <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
     </div>
     <div class="field"><label>Table</label><input id="guTable" placeholder="transaction"></div>
     <div id="guResult" style="display:none">
@@ -447,43 +447,14 @@ async function openWizard(){
   setWmType('date');
   step=0;renderStep();go('wizard');onWSrcChange();onWTgtChange();
 }
-// Identifier model beda per engine:
-//  - postgresql: database + schema + table semuanya spesifik & terpisah.
-//  - mysql: database == schema (satu konsep saja) → field schema tidak relevan.
-//  - oracle: schema (owner) saja yang jadi identifier — tidak ada "database" terpisah.
-const ENGINE_IDENT_HINT={
-  postgresql:'PostgreSQL: database, schema, dan table masing-masing spesifik & wajib diisi.',
-  mysql:'MySQL: database = schema (satu konsep). Field schema disamakan otomatis dengan database.',
-  oracle:'Oracle: hanya schema (owner) yang jadi identifier — tidak ada "database" terpisah dari koneksi.'};
-function applyEngineFields(which,eng,db){
-  const dbField=$(which==='src'?'wSDbField':'wTDbField');
-  const schField=$(which==='src'?'wSsField':'wTsField');
-  const schInput=$(which==='src'?'wSs':'wTs');
-  if(eng==='oracle'){
-    dbField.style.display='none';
-    schField.style.display='';
-  }else if(eng==='mysql'){
-    dbField.style.display='';
-    schField.style.display='none';
-    schInput.value=db||'';
-  }else{ // postgresql (default)
-    dbField.style.display='';
-    schField.style.display='';
-  }
-  $('wIdentHint').textContent=ENGINE_IDENT_HINT[eng]||ENGINE_IDENT_HINT.postgresql;
-}
 function onWSrcChange(){
   const opt=$('wSrc').selectedOptions[0];
-  const eng=opt?opt.dataset.eng:'', db=opt?opt.dataset.db:'';
-  $('wSDb').value=db;
-  applyEngineFields('src',eng,db);
+  $('wSDb').value=opt?opt.dataset.db:'';
   genName();
 }
 function onWTgtChange(){
   const opt=$('wTgt').selectedOptions[0];
-  const eng=opt?opt.dataset.eng:'', db=opt?opt.dataset.db:'';
-  $('wTDb').value=db;
-  applyEngineFields('tgt',eng,db);
+  $('wTDb').value=opt?opt.dataset.db:'';
 }
 function renderStep(){
   document.querySelectorAll('.step').forEach(s=>{const n=+s.dataset.s;
@@ -813,7 +784,7 @@ async function delC(id){if(!confirm('Hapus connection?'))return;
 async function openGenUser(){
   const cs=await api('/api/connections');
   if(!cs.length){toast('Belum ada connection — tambah dulu di Admin',1);return}
-  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}" data-db="${esc(c.database_name)}" data-eng="${c.engine}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
+  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}" data-db="${esc(c.database_name)}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
   $('guSchema').value='';$('guTable').value='';
   $('guResult').style.display='none';
   updateGuConnHint();
@@ -823,22 +794,8 @@ function updateGuConnHint(){
   const opt=$('guConn').selectedOptions[0];
   if(!opt){$('guConnHint').textContent='';$('guDb').value='';return}
   const privs=opt.dataset.role==='source'?'SELECT, DELETE':'SELECT, INSERT';
-  const eng=opt.dataset.eng, db=opt.dataset.db;
-  $('guDb').value=db;
-  if(eng==='oracle'){
-    $('guDbField').style.display='none';
-    $('guSchemaField').style.display='';
-    $('guConnHint').textContent=`Oracle: hanya schema (owner) yang dipakai. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (schema.table).`;
-  }else if(eng==='mysql'){
-    $('guDbField').style.display='';
-    $('guSchemaField').style.display='none';
-    $('guSchema').value=db;
-    $('guConnHint').textContent=`MySQL: database = schema. User "${opt.dataset.user}" akan diberi hak ${privs} pada database.table di bawah.`;
-  }else{
-    $('guDbField').style.display='';
-    $('guSchemaField').style.display='';
-    $('guConnHint').textContent=`PostgreSQL: database, schema, table masing-masing spesifik. User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table (database.schema.table).`;
-  }
+  $('guDb').value=opt.dataset.db;
+  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table di bawah (schema.table), bukan seluruh schema.`;
 }
 function closeGenUser(){$('genUserModal').classList.remove('on')}
 async function doGenUser(){
