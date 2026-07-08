@@ -444,7 +444,7 @@ async function openWizard(){
   const tgts=await api('/api/connections?role=target');
   if(!srcs.length||!tgts.length){toast('Buat connection source & target dulu di Admin',1);go('admin');loadConns();return}
   $('wSrc').innerHTML=srcs.map(c=>`<option value="${c.id}" data-eng="${c.engine}">${esc(c.name)} · ${c.engine}</option>`).join('');
-  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}">${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" data-eng="${c.engine}">${esc(c.name)} · ${c.engine}</option>`).join('');
   $('wTb').value='';$('wWm').value='';$('wRet').value=90;
   setWmType('date');
   step=0;renderStep();go('wizard');genName();
@@ -521,10 +521,45 @@ async function saveJob(){
       <pre id="wp${i}" class="on" style="user-select:all">${esc(f.file_content)}</pre>`).join('');
     $('saveBtn').textContent='✓ Approved';$('saveBtn').disabled=true;
     $('wCk').style.display='none';
+    appendUserSql(body);
   }catch(e){
     if(e.detail&&e.detail.error==='duplicate_name'){openDupModal(e.detail.existing_job_id,body.job_name);return}
     toast(e.message,1)
   }
+}
+
+// ── least-privilege DB user SQL, shown alongside KJB/KTR after save ──
+function _sanitizeIdent(s){
+  s=String(s||'').replace(/[^A-Za-z0-9_]/g,'_');
+  if(!/^[A-Za-z]/.test(s))s='u_'+s;
+  return s.slice(0,64);
+}
+async function appendUserSql(body){
+  const srcOpt=$('wSrc').selectedOptions[0], tgtOpt=$('wTgt').selectedOptions[0];
+  const reqs=[
+    {role:'source',engine:srcOpt?.dataset.eng,schema:body.src_schema,
+     username:_sanitizeIdent(`strata_${body.job_name}_src`)},
+    {role:'target',engine:tgtOpt?.dataset.eng,schema:body.tgt_schema,
+     username:_sanitizeIdent(`strata_${body.job_name}_tgt`)},
+  ];
+  let html=`<div class="strip i" style="margin:16px 0 12px">Script CREATE USER least-privilege (belum dijalankan) — review lalu jalankan manual sebagai DBA. Password hanya ditampilkan sekali di sini, tidak disimpan STRATA.</div>`;
+  for(const r of reqs){
+    if(!r.engine||!r.schema)continue;
+    try{
+      const g=await api('/api/connections/generate-user-sql',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({engine:r.engine,role:r.role,schema_name:r.schema,username:r.username})});
+      html+=`<div class="fpill" onclick="$('gu${r.role}').classList.toggle('on')">
+        <div class="fi ${r.role==='source'?'kjb':'ktr'}">SQL</div>
+        <div class="ft"><b>${esc(g.username)}</b> · role ${r.role}
+        <small>password: <span class="mono" style="user-select:all">${esc(g.password)}</span> · klik untuk expand SQL</small></div>
+        <span class="jp">›</span></div>
+      <pre id="gu${r.role}" class="on" style="user-select:all">${esc(g.sql)}</pre>`;
+    }catch(e){
+      html+=`<div class="strip" style="margin-bottom:10px">Gagal generate user untuk role ${r.role}: ${esc(e.message)}</div>`;
+    }
+  }
+  $('filePreview').insertAdjacentHTML('beforeend',html);
 }
 
 // ── DUPLICATE NAME PROMPT ──
@@ -725,7 +760,7 @@ async function editJob(id){
   const srcs=await api('/api/connections?role=source');
   const tgts=await api('/api/connections?role=target');
   $('wSrc').innerHTML=srcs.map(c=>`<option value="${c.id}" data-eng="${c.engine}" ${c.id===j.src_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
-  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" ${c.id===j.tgt_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
+  $('wTgt').innerHTML=tgts.map(c=>`<option value="${c.id}" data-eng="${c.engine}" ${c.id===j.tgt_conn_id?'selected':''}>${esc(c.name)} · ${c.engine}</option>`).join('');
   $('wSs').value=j.src_schema;$('wTs').value=j.tgt_schema;
   $('wTb').value=j.table_name;$('wWm').value=j.watermark_col;
   setWmType(j.watermark_col.trim().toUpperCase()==='ID'?'id':'date');
