@@ -85,39 +85,36 @@ def jdbc_type(engine: str) -> str:
 _PRIVS = {"source": ("SELECT", "DELETE"), "target": ("SELECT", "INSERT")}
 
 
-def generate_user_sql(engine: str, role: str, schema: str, username: str) -> str:
-    """Generate least-privilege GRANT script untuk USER YANG SUDAH ADA (dibuat manual di
-    Admin > Connections, bukan dibuat oleh STRATA). Tidak dieksekusi oleh STRATA — hanya
-    ditampilkan untuk dijalankan manual oleh DBA setelah direview."""
+def generate_user_sql(engine: str, role: str, database: str, schema: str, table: str, username: str) -> str:
+    """Generate least-privilege GRANT script — scoped ke SATU TABLE saja (bukan seluruh
+    schema), untuk USER YANG SUDAH ADA (dibuat manual di Admin > Connections, bukan dibuat
+    oleh STRATA). Tidak dieksekusi oleh STRATA — hanya ditampilkan untuk dijalankan manual
+    oleh DBA setelah direview."""
     privs = _PRIVS[role]
     priv_list = ", ".join(privs)
+    header = (f"-- Least privilege untuk role={role}, database={database}, "
+              f"schema={schema}, table={table}\n"
+              f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n")
 
     if engine == "mysql":
+        # MySQL tidak punya konsep schema terpisah dari database — database == schema.
         return (
-            f"-- Least privilege untuk role={role}, schema={schema}\n"
-            f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
-            f"GRANT {priv_list} ON `{schema}`.* TO '{username}'@'%';\n"
+            header +
+            f"USE `{database}`;\n"
+            f"GRANT {priv_list} ON `{database}`.`{table}` TO '{username}'@'%';\n"
             f"FLUSH PRIVILEGES;\n"
         )
     if engine == "postgresql":
         return (
-            f"-- Least privilege untuk role={role}, schema={schema}\n"
-            f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
-            f"GRANT CONNECT ON DATABASE current_database() TO {username};\n"
+            header +
+            f"\\c {database}\n"
+            f"GRANT CONNECT ON DATABASE {database} TO {username};\n"
             f"GRANT USAGE ON SCHEMA {schema} TO {username};\n"
-            f"GRANT {priv_list} ON ALL TABLES IN SCHEMA {schema} TO {username};\n"
-            f"ALTER DEFAULT PRIVILEGES IN SCHEMA {schema} GRANT {priv_list} ON TABLES TO {username};\n"
+            f"GRANT {priv_list} ON {schema}.{table} TO {username};\n"
         )
-    # oracle — grant per-table via dynamic PL/SQL loop atas semua tabel di schema target,
-    # karena Oracle tidak punya "GRANT ... ON ALL TABLES IN SCHEMA" seperti PG.
+    # oracle — grant langsung ke object spesifik, bukan loop semua tabel di schema.
     return (
-        f"-- Least privilege untuk role={role}, schema={schema}\n"
-        f"-- Asumsi user '{username}' sudah ada (dibuat manual oleh DBA).\n"
+        header +
         f"GRANT CREATE SESSION TO {username};\n"
-        f"BEGIN\n"
-        f"  FOR t IN (SELECT table_name FROM all_tables WHERE owner = '{schema.upper()}') LOOP\n"
-        f"    EXECUTE IMMEDIATE 'GRANT {priv_list} ON \"{schema.upper()}\".\"' || t.table_name || '\" TO {username}';\n"
-        f"  END LOOP;\n"
-        f"END;\n"
-        f"/\n"
+        f'GRANT {priv_list} ON "{schema.upper()}"."{table.upper()}" TO {username};\n'
     )

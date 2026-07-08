@@ -344,7 +344,11 @@ border-radius:var(--r);padding:12px 18px;font-size:12px;z-index:50;display:none}
     <div class="field"><label>Connection</label>
       <select id="guConn"></select>
       <div class="hint" id="guConnHint"></div></div>
-    <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
+    <div class="r2">
+      <div class="field"><label>Database</label><input id="guDb" readonly disabled></div>
+      <div class="field"><label>Schema</label><input id="guSchema" placeholder="trxprod"></div>
+    </div>
+    <div class="field"><label>Table</label><input id="guTable" placeholder="transaction"></div>
     <div id="guResult" style="display:none">
       <div class="field"><label>SQL script (review sebelum dijalankan)</label>
         <pre id="guSql" class="on" style="user-select:all;max-height:260px;overflow:auto"></pre></div>
@@ -521,16 +525,16 @@ async function saveJob(){
 // ── least-privilege GRANT SQL untuk user connection yang sudah ada, shown alongside KJB/KTR ──
 async function appendUserSql(body){
   const reqs=[
-    {role:'source',connId:body.src_conn_id,schema:body.src_schema},
-    {role:'target',connId:body.tgt_conn_id,schema:body.tgt_schema},
+    {role:'source',connId:body.src_conn_id,schema:body.src_schema,table:body.table_name},
+    {role:'target',connId:body.tgt_conn_id,schema:body.tgt_schema,table:body.table_name},
   ];
-  let html=`<div class="strip i" style="margin:16px 0 12px">Script GRANT least-privilege untuk user connection yang sudah ada (STRATA tidak membuat user baru) — review lalu jalankan manual sebagai DBA.</div>`;
+  let html=`<div class="strip i" style="margin:16px 0 12px">Script GRANT least-privilege (scoped ke 1 table) untuk user connection yang sudah ada (STRATA tidak membuat user baru) — review lalu jalankan manual sebagai DBA.</div>`;
   for(const r of reqs){
-    if(!r.connId||!r.schema)continue;
+    if(!r.connId||!r.schema||!r.table)continue;
     try{
       const g=await api('/api/connections/generate-user-sql',{method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({conn_id:r.connId,schema_name:r.schema})});
+        body:JSON.stringify({conn_id:r.connId,schema_name:r.schema,table_name:r.table})});
       html+=`<div class="fpill" onclick="$('gu${r.role}').classList.toggle('on')">
         <div class="fi ${r.role==='source'?'kjb':'ktr'}">SQL</div>
         <div class="ft"><b>${esc(g.username)}</b> · role ${r.role}
@@ -766,26 +770,29 @@ async function delC(id){if(!confirm('Hapus connection?'))return;
 async function openGenUser(){
   const cs=await api('/api/connections');
   if(!cs.length){toast('Belum ada connection — tambah dulu di Admin',1);return}
-  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
-  $('guSchema').value='';
+  $('guConn').innerHTML=cs.map(c=>`<option value="${c.id}" data-role="${c.role}" data-user="${esc(c.username)}" data-db="${esc(c.database_name)}">${esc(c.name)} · ${c.role} · ${esc(c.username)}</option>`).join('');
+  $('guSchema').value='';$('guTable').value='';
   $('guResult').style.display='none';
   updateGuConnHint();
   $('genUserModal').classList.add('on');
 }
 function updateGuConnHint(){
   const opt=$('guConn').selectedOptions[0];
-  if(!opt){$('guConnHint').textContent='';return}
+  if(!opt){$('guConnHint').textContent='';$('guDb').value='';return}
   const privs=opt.dataset.role==='source'?'SELECT, DELETE':'SELECT, INSERT';
-  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada schema di bawah.`;
+  $('guDb').value=opt.dataset.db;
+  $('guConnHint').textContent=`User "${opt.dataset.user}" akan diberi hak ${privs} pada 1 table di bawah (schema.table), bukan seluruh schema.`;
 }
 function closeGenUser(){$('genUserModal').classList.remove('on')}
 async function doGenUser(){
   const connId=+$('guConn').value;
   const schema=$('guSchema').value.trim();
-  if(!connId||!schema){toast('Pilih connection & isi schema',1);return}
+  const table=$('guTable').value.trim();
+  if(!connId||!schema||!table){toast('Pilih connection, isi schema & table',1);return}
   try{
     const r=await api('/api/connections/generate-user-sql',{method:'POST',
-      headers:{'Content-Type':'application/json'},body:JSON.stringify({conn_id:connId,schema_name:schema})});
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({conn_id:connId,schema_name:schema,table_name:table})});
     $('guSql').textContent=r.sql;
     $('guResult').style.display='block';
     toast('SQL digenerate — review & jalankan manual sebagai DBA');

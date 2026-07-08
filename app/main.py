@@ -29,6 +29,7 @@ class ConnIn(BaseModel):
 class GenUserIn(BaseModel):
     conn_id: int
     schema_name: str
+    table_name: str
 
 
 class JobIn(BaseModel):
@@ -138,7 +139,10 @@ def generate_user_sql(g: GenUserIn):
     c = rows[0]
     if not _IDENT_RE.match(g.schema_name):
         raise HTTPException(400, "schema_name tidak valid — huruf/angka/underscore saja")
-    sql = dialects.generate_user_sql(c["engine"], c["role"], g.schema_name, c["username"])
+    if not _IDENT_RE.match(g.table_name):
+        raise HTTPException(400, "table_name tidak valid — huruf/angka/underscore saja")
+    sql = dialects.generate_user_sql(c["engine"], c["role"], c["database_name"],
+                                      g.schema_name, g.table_name, c["username"])
     return {"username": c["username"], "sql": sql}
 
 
