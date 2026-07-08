@@ -59,16 +59,36 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
   </info>
 {_conn_block(src['name'], src['engine'], src['host'], src['port'], src['database_name'], src['username'])}
 {_conn_block(tgt['name'], tgt['engine'], tgt['host'], tgt['port'], tgt['database_name'], tgt['username'])}
+  <notepads>
+  </notepads>
   <order>
     <hop><from>READ_SOURCE</from><to>WRITE_TARGET</to><enabled>Y</enabled></hop>
   </order>
   <step>
     <name>READ_SOURCE</name>
     <type>TableInput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
     <connection>{escape(src['name'])}</connection>
     <sql>{escape(sel)}</sql>
     <limit>0</limit>
+    <lookup/>
     <execute_each_row>N</execute_each_row>
+    <variables_active>N</variables_active>
+    <lazy_conversion_active>N</lazy_conversion_active>
+    <cluster_schema/>
+    <remotesteps>
+      <input>
+      </input>
+      <output>
+      </output>
+    </remotesteps>
     <GUI>
       <xloc>150</xloc>
       <yloc>200</yloc>
@@ -78,6 +98,14 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
   <step>
     <name>WRITE_TARGET</name>
     <type>TableOutput</type>
+    <description/>
+    <distribute>Y</distribute>
+    <custom_distribution/>
+    <copies>1</copies>
+    <partitioning>
+      <method>none</method>
+      <schema_name/>
+    </partitioning>
     <connection>{escape(tgt['name'])}</connection>
     <schema>{escape(job['tgt_schema'])}</schema>
     <table>{escape(job['table_name'])}</table>
@@ -85,12 +113,25 @@ def generate_ktr(job: dict, src: dict, tgt: dict) -> str:
     <truncate>N</truncate>
     <ignore_errors>N</ignore_errors>
     <use_batch>Y</use_batch>
+    <specify_fields>N</specify_fields>
+    <cluster_schema/>
+    <remotesteps>
+      <input>
+      </input>
+      <output>
+      </output>
+    </remotesteps>
     <GUI>
       <xloc>450</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
     </GUI>
   </step>
+  <step_error_handling>
+  </step_error_handling>
+  <slave-step-copy-partition-distribution>
+  </slave-step-copy-partition-distribution>
+  <slave-transformation>N</slave-transformation>
 </transformation>
 """
 
@@ -144,6 +185,7 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
       <xloc>1050</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>"""
         last_phase = "PURGE_SOURCE"
     else:
@@ -157,6 +199,7 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
       <xloc>1050</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>"""
         last_phase = "KEEP_LOG"
 
@@ -181,6 +224,7 @@ def generate_kjb(job: dict, src: dict, tgt: dict, repo: dict) -> str:
       <xloc>280</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
 """
         init_summary_to_next = "GET_MAX_ID"
@@ -212,6 +256,10 @@ result = (src_c == tgt_c);"""
 {_conn_block(repo['name'], 'mysql', repo['host'], repo['port'], repo['database_name'], repo['username'])}
 {_conn_block(src['name'], src['engine'], src['host'], src['port'], src['database_name'], src['username'])}
 {_conn_block(tgt['name'], tgt['engine'], tgt['host'], tgt['port'], tgt['database_name'], tgt['username'])}
+  <notepads>
+  </notepads>
+  <parameters>
+  </parameters>
   <entries>
     <entry>
       <name>START</name>
@@ -220,6 +268,7 @@ result = (src_c == tgt_c);"""
       <xloc>50</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>INIT_SUMMARY</name>
@@ -229,6 +278,7 @@ result = (src_c == tgt_c);"""
       <xloc>200</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>RUN_KTR</name>
@@ -237,6 +287,7 @@ result = (src_c == tgt_c);"""
       <xloc>370</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>GET_SRC_COUNT</name>
@@ -248,6 +299,7 @@ result = (src_c == tgt_c);"""
       <xloc>540</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>GET_TGT_COUNT</name>
@@ -259,6 +311,7 @@ result = (src_c == tgt_c);"""
       <xloc>710</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>VERIFY_COUNT</name>
@@ -267,6 +320,7 @@ result = (src_c == tgt_c);"""
       <xloc>880</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
 {get_max_id_entry}{purge_entry}
     <entry>
@@ -277,6 +331,7 @@ result = (src_c == tgt_c);"""
       <xloc>1220</xloc>
       <yloc>200</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>MARK_MISMATCH</name>
@@ -286,6 +341,7 @@ result = (src_c == tgt_c);"""
       <xloc>880</xloc>
       <yloc>370</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
     <entry>
       <name>ABORT_JOB</name>
@@ -294,6 +350,7 @@ result = (src_c == tgt_c);"""
       <xloc>1050</xloc>
       <yloc>370</yloc>
       <draw>Y</draw>
+      <parallel>N</parallel>
     </entry>
   </entries>
   <hops>
